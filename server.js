@@ -14,6 +14,9 @@ const io = new Server(server, {
     }
 });
 
+require('./gamejoy-sessions')(io);
+app.get('/gamejoy-health', (_req, res) => res.json({ protocol: 1 }));
+
 // ==================== MULTIPLAYER GAME DATA ====================
 // Almacena información de las salas: { roomId: { seed: number, players: { socketId: { index, color } } } }
 const rooms = {};
