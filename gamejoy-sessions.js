@@ -8,7 +8,8 @@ module.exports = function attachGameJoySessions(io) {
     const label = (v, fallback) => typeof v === 'string' ? v.replace(/[\x00-\x1f]/g, '').trim().slice(0, 80) || fallback : fallback;
     const avatarUrl = v => typeof v === 'string' && v.length <= 2048 && /^https:\/\//i.test(v) ? v : '';
     const send = (id, event, data) => io.to(id).emit(`gamejoy:${event}`, data);
-    const profile = p => ({ id: p.id, name: p.name, channel: p.channel, avatar: p.avatar, busy: !!p.peer });
+    const profile = p => ({ id: p.id, name: p.name, channel: p.channel, avatar: p.avatar, busy: !!p.peer,
+        vdoAvailable: typeof p.vdoStreamId === 'string' });
     function list() {
         const available = [...players.values()].filter(p => p.role === 'player' && p.sharing).map(profile);
         for (const p of players.values()) if (p.role === 'controller') send(p.id, 'players', available);
@@ -31,7 +32,7 @@ module.exports = function attachGameJoySessions(io) {
             const old = players.get(socket.id);
             if (old) unpair(old);
             const p = { id: socket.id, role: data.role, name: label(data.name, 'Jugador'),
-                channel: label(data.channel, ''), avatar: avatarUrl(data.avatar), sharing: false, peer: null, lastFrame: null,
+                channel: label(data.channel, ''), avatar: avatarUrl(data.avatar), sharing: false, peer: null, lastFrame: null, vdoStreamId: null,
                 lastInputAt: 0, lastLocationAt: 0, lastSelectAt: 0 };
             players.set(socket.id, p);
             socket.emit('gamejoy:ready', { version: 1 });
@@ -50,11 +51,39 @@ module.exports = function attachGameJoySessions(io) {
             if (peer?.peer === p.id) send(peer.id, 'peer-profile', profile(p));
             if (typeof ack === 'function') ack({ success: true, channel });
         });
+        socket.on('gamejoy:vdo', (data, ack) => {
+            const p = players.get(socket.id);
+            if (!p || p.role !== 'player' || !p.sharing) {
+                if (typeof ack === 'function') ack({ success: false });
+                return;
+            }
+            if (data?.active === true) {
+                const streamId = typeof data.streamId === 'string' ? data.streamId.trim() : '';
+                if (!/^[A-Za-z0-9_-]{16,64}$/.test(streamId)) {
+                    if (typeof ack === 'function') ack({ success: false });
+                    return;
+                }
+                p.vdoStreamId = streamId;
+            } else {
+                p.vdoStreamId = null;
+            }
+            list();
+            const peer = players.get(p.peer);
+            if (peer?.peer === p.id) send(peer.id, 'peer-profile', profile(p));
+            if (typeof ack === 'function') ack({ success: true });
+        });
+        socket.on('gamejoy:get-vdo', (data, ack) => {
+            const controller = players.get(socket.id);
+            const target = players.get(typeof data?.id === 'string' ? data.id : '');
+            const allowed = controller?.role === 'controller' && target?.role === 'player' &&
+                target.sharing && typeof target.vdoStreamId === 'string';
+            if (typeof ack === 'function') ack(allowed ? { success: true, streamId: target.vdoStreamId } : { success: false });
+        });
         socket.on('gamejoy:sharing', data => {
             const p = players.get(socket.id);
             if (!p || p.role !== 'player') return;
             p.sharing = data?.enabled === true;
-            if (!p.sharing) { p.lastFrame = null; unpair(p, 'El jugador dejó de compartir'); }
+            if (!p.sharing) { p.lastFrame = null; p.vdoStreamId = null; unpair(p, 'El jugador dejó de compartir'); }
             list();
         });
         socket.on('gamejoy:select', data => {
