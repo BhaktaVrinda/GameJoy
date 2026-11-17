@@ -6,8 +6,9 @@ module.exports = function attachGameJoySessions(io) {
     const players = new Map();
     const validNumber = (v, min, max) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
     const label = (v, fallback) => typeof v === 'string' ? v.replace(/[\x00-\x1f]/g, '').trim().slice(0, 80) || fallback : fallback;
+    const avatarUrl = v => typeof v === 'string' && v.length <= 2048 && /^https:\/\//i.test(v) ? v : '';
     const send = (id, event, data) => io.to(id).emit(`gamejoy:${event}`, data);
-    const profile = p => ({ id: p.id, name: p.name, channel: p.channel, busy: !!p.peer });
+    const profile = p => ({ id: p.id, name: p.name, channel: p.channel, avatar: p.avatar, busy: !!p.peer });
     function list() {
         const available = [...players.values()].filter(p => p.role === 'player' && p.sharing).map(profile);
         for (const p of players.values()) if (p.role === 'controller') send(p.id, 'players', available);
@@ -30,11 +31,24 @@ module.exports = function attachGameJoySessions(io) {
             const old = players.get(socket.id);
             if (old) unpair(old);
             const p = { id: socket.id, role: data.role, name: label(data.name, 'Jugador'),
-                channel: label(data.channel, ''), sharing: false, peer: null, lastFrame: null,
+                channel: label(data.channel, ''), avatar: avatarUrl(data.avatar), sharing: false, peer: null, lastFrame: null,
                 lastInputAt: 0, lastLocationAt: 0, lastSelectAt: 0 };
             players.set(socket.id, p);
             socket.emit('gamejoy:ready', { version: 1 });
             list();
+        });
+        socket.on('gamejoy:channel', (data, ack) => {
+            const p = players.get(socket.id);
+            const channel = typeof data?.channel === 'string' ? data.channel.trim() : '';
+            if (!p || p.role !== 'player' || !/^@[\w.-]{1,79}$/.test(channel)) {
+                if (typeof ack === 'function') ack({ success: false });
+                return;
+            }
+            p.channel = channel;
+            list();
+            const peer = players.get(p.peer);
+            if (peer?.peer === p.id) send(peer.id, 'peer-profile', profile(p));
+            if (typeof ack === 'function') ack({ success: true, channel });
         });
         socket.on('gamejoy:sharing', data => {
             const p = players.get(socket.id);
