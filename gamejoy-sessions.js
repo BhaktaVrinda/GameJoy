@@ -7,12 +7,25 @@ const path = require('node:path');
 module.exports = function attachGameJoySessions(io, app) {
     const players = new Map();
     const maps = new Map();
+    const obsVdoLinks = new Map();
     function unpublishMap(p) {
         if (maps.get(p.mapToken) === p) maps.delete(p.mapToken);
         p.mapToken = null;
     }
+    function unpublishObsVdoLink(p) {
+        if (obsVdoLinks.get(p.obsVdoToken) === p) obsVdoLinks.delete(p.obsVdoToken);
+        p.obsVdoToken = null;
+    }
     if (app) {
         app.get('/obs/map', (_req, res) => res.sendFile(path.join(__dirname, 'obs-map.html')));
+        app.get('/obs/vdo', (_req, res) => res.sendFile(path.join(__dirname, 'obs-vdo.html')));
+        app.get('/obs/vdo/current', (req, res) => {
+            res.set('Cache-Control', 'no-store');
+            const token = req.get('Authorization')?.replace(/^Bearer /, '');
+            const player = obsVdoLinks.get(token);
+            if (!player) return res.sendStatus(404);
+            res.json({ streamId: player.vdoStreamId });
+        });
         app.get('/obs/leaflet.js', (_req, res) => res.sendFile(require.resolve('leaflet/dist/leaflet.js')));
         app.get('/obs/leaflet.css', (_req, res) => res.sendFile(require.resolve('leaflet/dist/leaflet.css')));
         app.get('/obs/position', (req, res) => {
@@ -52,10 +65,10 @@ module.exports = function attachGameJoySessions(io, app) {
         socket.on('gamejoy:register', (data = {}) => {
             if (!data || !['player', 'controller'].includes(data.role)) return;
             const old = players.get(socket.id);
-            if (old) { unpublishMap(old); unpair(old); }
+            if (old) { unpublishMap(old); unpublishObsVdoLink(old); unpair(old); }
             const p = { id: socket.id, role: data.role, name: label(data.name, 'Jugador'),
                 channel: label(data.channel, ''), avatar: avatarUrl(data.avatar), sharing: false, peer: null, lastFrame: null, vdoStreamId: null,
-                lastInputAt: 0, lastLocationAt: 0, lastSelectAt: 0 };
+                mapToken: null, obsVdoToken: null, lastInputAt: 0, lastLocationAt: 0, lastSelectAt: 0 };
             players.set(socket.id, p);
             socket.emit('gamejoy:ready', { version: 1 });
             list();
@@ -94,6 +107,24 @@ module.exports = function attachGameJoySessions(io, app) {
             if (peer?.peer === p.id) send(peer.id, 'peer-profile', profile(p));
             if (typeof ack === 'function') ack({ success: true });
         });
+        socket.on('gamejoy:vdo-link', (data, ack) => {
+            const p = players.get(socket.id);
+            const key = data?.key;
+            if (!app || p?.role !== 'player' || !p.sharing || typeof key !== 'string' || !/^[a-f0-9]{32}$/.test(key)) {
+                if (typeof ack === 'function') ack({ success: false });
+                return;
+            }
+            const token = crypto.createHash('sha256').update(key).digest('hex');
+            const owner = obsVdoLinks.get(token);
+            if (owner && owner !== p) {
+                if (typeof ack === 'function') ack({ success: false });
+                return;
+            }
+            unpublishObsVdoLink(p);
+            p.obsVdoToken = token;
+            obsVdoLinks.set(token, p);
+            if (typeof ack === 'function') ack({ success: true, token });
+        });
         socket.on('gamejoy:get-vdo', (data, ack) => {
             const controller = players.get(socket.id);
             const target = players.get(typeof data?.id === 'string' ? data.id : '');
@@ -105,7 +136,11 @@ module.exports = function attachGameJoySessions(io, app) {
             const p = players.get(socket.id);
             if (!p || p.role !== 'player') return;
             p.sharing = data?.enabled === true;
-            if (!p.sharing) { unpublishMap(p); p.lastFrame = null; p.vdoStreamId = null; unpair(p, 'El jugador dejó de compartir'); }
+            if (!p.sharing) {
+                unpublishMap(p); unpublishObsVdoLink(p);
+                p.lastFrame = null; p.vdoStreamId = null;
+                unpair(p, 'El jugador dejó de compartir');
+            }
             list();
         });
         socket.on('gamejoy:map-link', (data, ack) => {
@@ -181,7 +216,7 @@ module.exports = function attachGameJoySessions(io, app) {
         socket.on('disconnect', () => {
             const p = players.get(socket.id);
             if (!p) return;
-            unpublishMap(p);
+            unpublishMap(p); unpublishObsVdoLink(p);
             unpair(p, 'El otro jugador se desconectó');
             players.delete(socket.id); list();
         });
