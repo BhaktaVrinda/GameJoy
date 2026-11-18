@@ -6,16 +6,20 @@
   <meta name="referrer" content="strict-origin">
   <title>Minimapa de GameJoy</title>
   <style>
-    html, body { height: 100%; margin: 0; background: transparent; }
-    main { position: relative; height: 100%; overflow: hidden; border-radius: 12px;
-           background: #f6f8fa; color: #38434e; font: 500 15px system-ui, sans-serif; }
-    #maps, iframe, #status { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-    #status { display: grid; place-content: center; text-align: center; }
-    #bearing { position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
-               display: flex; align-items: center; gap: 5px; background: white; color: #24558b;
-               border-radius: 18px; padding: 6px 9px; box-shadow: 0 1px 5px #26374740;
-               font-size: 12px; font-weight: 600; pointer-events: none; }
-    #arrow { width: 10px; height: 13px; background: #1a73e8; clip-path: polygon(50% 0,100% 100%,50% 76%,0 100%); }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+    body { display: grid; place-items: center; }
+    main { position: relative; width: min(100vw, 100vh); height: min(100vw, 100vh);
+           box-sizing: border-box; overflow: hidden; border: 4px solid transparent; border-radius: 50%;
+           background: linear-gradient(#f6f8fa, #f6f8fa) padding-box,
+             conic-gradient(#59e1ff, #3579f6, #936dff, #66c0f4, #59e1ff) border-box;
+           color: #38434e; font: 500 15px system-ui, sans-serif; }
+    #maps, #status, #indicator-wrap { position: absolute; inset: 4px; overflow: hidden; border-radius: 50%; }
+    #maps iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+    #status { display: grid; place-content: center; padding: 24px; box-sizing: border-box;
+              background: #f6f8fa; text-align: center; }
+    #indicator-wrap { pointer-events: none; }
+    #location-indicator { display: block; width: 100%; height: 100%; }
+    #direction-beam { display: none; }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -23,16 +27,29 @@
   <main>
     <div id="maps"></div>
     <div id="status" role="status">Esperando ubicación…</div>
-    <div id="bearing" aria-label="Rumbo" hidden><span id="arrow"></span><span id="degrees"></span></div>
+    <div id="indicator-wrap" aria-hidden="true">
+      <svg id="location-indicator" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <radialGradient id="beam-glow" cx="100" cy="100" r="90" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#4285f4" stop-opacity=".53" />
+            <stop offset=".4" stop-color="#4285f4" stop-opacity=".33" />
+            <stop offset="1" stop-color="#4285f4" stop-opacity="0" />
+          </radialGradient>
+        </defs>
+        <g id="direction-beam" transform="rotate(0 100 100)">
+          <path d="M58.5 19.6 A90 90 0 0 1 141.5 19.6 L104.6 91.2 A10 10 0 0 0 95.4 91.2 Z" fill="url(#beam-glow)" />
+        </g>
+        <circle cx="100" cy="100" r="14" fill="#4285f4" opacity=".2" />
+        <circle cx="100" cy="100" r="7" fill="#4285f4" stroke="#fff" stroke-width="3" />
+      </svg>
+    </div>
   </main>
   <script>
     const maps = document.getElementById('maps');
     const status = document.getElementById('status');
-    const bearing = document.getElementById('bearing');
-    const arrow = document.getElementById('arrow');
-    const degrees = document.getElementById('degrees');
+    const directionBeam = document.getElementById('direction-beam');
     const token = location.hash.slice(1);
-    const zoom = 19;
+    const zoom = 20;
     let center = null;
     let current = null;
     let loading = null;
@@ -45,15 +62,13 @@
       center = current = loading = null;
       status.textContent = message;
       status.hidden = false;
-      bearing.hidden = true;
+      directionBeam.style.display = 'none';
     }
 
     function showHeading() {
-      bearing.hidden = !current || !Number.isFinite(latestHeading);
-      if (!bearing.hidden) {
-        arrow.style.transform = 'rotate(' + latestHeading + 'deg)';
-        degrees.textContent = Math.round(latestHeading) % 360 + '°';
-      }
+      const visible = Boolean(current) && Number.isFinite(latestHeading);
+      directionBeam.style.display = visible ? 'inline' : 'none';
+      if (visible) directionBeam.setAttribute('transform', 'rotate(' + latestHeading + ' 100 100)');
     }
 
     function showPosition(point) {
@@ -68,7 +83,7 @@
       }
       const coordinates = point.latitude + ',' + point.longitude;
       const url = new URL('https://maps.google.com/maps');
-      url.search = new URLSearchParams({ q: coordinates, ll: coordinates, z: zoom, t: 'm', hl: 'es', output: 'embed' });
+      url.search = new URLSearchParams({ ll: coordinates, z: zoom, t: 'm', hl: 'es', output: 'embed' });
       const frame = document.createElement('iframe');
       frame.title = 'Ubicación en Google Maps';
       frame.referrerPolicy = 'strict-origin';
