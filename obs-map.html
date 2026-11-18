@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin">
+  <title>Minimapa de GameJoy</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: transparent; }
+    main { position: relative; height: 100%; overflow: hidden; border-radius: 12px;
+           background: #f6f8fa; color: #38434e; font: 500 15px system-ui, sans-serif; }
+    #maps, iframe, #status { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+    #status { display: grid; place-content: center; text-align: center; }
+    #bearing { position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+               display: flex; align-items: center; gap: 5px; background: white; color: #24558b;
+               border-radius: 18px; padding: 6px 9px; box-shadow: 0 1px 5px #26374740;
+               font-size: 12px; font-weight: 600; pointer-events: none; }
+    #arrow { width: 10px; height: 13px; background: #1a73e8; clip-path: polygon(50% 0,100% 100%,50% 76%,0 100%); }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <div id="maps"></div>
+    <div id="status" role="status">Esperando ubicación…</div>
+    <div id="bearing" aria-label="Rumbo" hidden><span id="arrow"></span><span id="degrees"></span></div>
+  </main>
+  <script>
+    const maps = document.getElementById('maps');
+    const status = document.getElementById('status');
+    const bearing = document.getElementById('bearing');
+    const arrow = document.getElementById('arrow');
+    const degrees = document.getElementById('degrees');
+    const token = location.hash.slice(1);
+    const zoom = 19;
+    let center = null;
+    let current = null;
+    let loading = null;
+    let loadTimeout;
+    let latestHeading = null;
+
+    function hide(message) {
+      clearTimeout(loadTimeout);
+      maps.replaceChildren();
+      center = current = loading = null;
+      status.textContent = message;
+      status.hidden = false;
+      bearing.hidden = true;
+    }
+
+    function showHeading() {
+      bearing.hidden = !current || !Number.isFinite(latestHeading);
+      if (!bearing.hidden) {
+        arrow.style.transform = 'rotate(' + latestHeading + 'deg)';
+        degrees.textContent = Math.round(latestHeading) % 360 + '°';
+      }
+    }
+
+    function showPosition(point) {
+      latestHeading = point.heading;
+      showHeading();
+      if (loading) return;
+      // Ignore small GPS fluctuations while stationary.
+      if (center) {
+        const north = (point.latitude - center.latitude) * 111320;
+        const east = (point.longitude - center.longitude) * 111320 * Math.cos(point.latitude * Math.PI / 180);
+        if (Math.hypot(north, east) < 4) return;
+      }
+      const coordinates = point.latitude + ',' + point.longitude;
+      const url = new URL('https://maps.google.com/maps');
+      url.search = new URLSearchParams({ q: coordinates, ll: coordinates, z: zoom, t: 'm', hl: 'es', output: 'embed' });
+      const frame = document.createElement('iframe');
+      frame.title = 'Ubicación en Google Maps';
+      frame.referrerPolicy = 'strict-origin';
+      frame.style.visibility = 'hidden';
+      loading = frame;
+      frame.onload = () => {
+        if (loading !== frame) return;
+        clearTimeout(loadTimeout);
+        frame.style.visibility = 'visible';
+        current?.remove();
+        current = frame;
+        center = point;
+        loading = null;
+        status.hidden = true;
+        showHeading();
+      };
+      loadTimeout = setTimeout(() => hide('Reconectando con Google Maps…'), 10000);
+      frame.src = url.href;
+      maps.appendChild(frame);
+    }
+
+    async function update() {
+      const abort = new AbortController();
+      const deadline = setTimeout(() => abort.abort(), 3500);
+      try {
+        const result = await fetch('/obs/position', { headers: { Authorization: 'Bearer ' + token },
+          cache: 'no-store', signal: abort.signal });
+        if (result.status === 404) return hide('Ubicación sin compartir');
+        if (result.status === 204) return hide('Esperando GPS…');
+        if (!result.ok) throw new Error();
+        showPosition(await result.json());
+      } catch {
+        hide('Reconectando…');
+      } finally {
+        clearTimeout(deadline);
+        setTimeout(update, 1000);
+      }
+    }
+    if (/^[0-9a-f]{64}$/.test(token)) update();
+    else hide('Copia el enlace del mapa desde GameJoy');
+  </script>
+</body>
+</html>
