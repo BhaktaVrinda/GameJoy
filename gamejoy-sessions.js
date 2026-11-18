@@ -1,31 +1,9 @@
 'use strict';
-const crypto = require('node:crypto');
-const path = require('node:path');
 
 // Separate from the legacy PC/game protocol. Profiles are display labels;
 // routing and ownership always use the server-owned socket, never a supplied user id.
-module.exports = function attachGameJoySessions(io, app) {
+module.exports = function attachGameJoySessions(io) {
     const players = new Map();
-    const maps = new Map();
-    function unpublishMap(p) {
-        if (maps.get(p.mapToken) === p) maps.delete(p.mapToken);
-        p.mapToken = null;
-    }
-    if (app) {
-        app.get('/obs/map', (_req, res) => res.sendFile(path.join(__dirname, 'obs-map.html')));
-        app.get('/obs/leaflet.js', (_req, res) => res.sendFile(require.resolve('leaflet/dist/leaflet.js')));
-        app.get('/obs/leaflet.css', (_req, res) => res.sendFile(require.resolve('leaflet/dist/leaflet.css')));
-        app.get('/obs/position', (req, res) => {
-            res.set('Cache-Control', 'no-store');
-            const token = req.get('Authorization')?.replace(/^Bearer /, '');
-            const player = maps.get(token);
-            if (!player) return res.sendStatus(404);
-            const frame = player.lastFrame;
-            const remainingMs = frame && 30000 - frame.ageMs - (Date.now() - frame.receivedAt);
-            if (!frame || remainingMs <= 0) return res.sendStatus(204);
-            res.json({ latitude: frame.latitude, longitude: frame.longitude, heading: frame.heading, remainingMs });
-        });
-    }
     const validNumber = (v, min, max) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
     const label = (v, fallback) => typeof v === 'string' ? v.replace(/[\x00-\x1f]/g, '').trim().slice(0, 80) || fallback : fallback;
     const avatarUrl = v => typeof v === 'string' && v.length <= 2048 && /^https:\/\//i.test(v) ? v : '';
@@ -52,7 +30,7 @@ module.exports = function attachGameJoySessions(io, app) {
         socket.on('gamejoy:register', (data = {}) => {
             if (!data || !['player', 'controller'].includes(data.role)) return;
             const old = players.get(socket.id);
-            if (old) { unpublishMap(old); unpair(old); }
+            if (old) unpair(old);
             const p = { id: socket.id, role: data.role, name: label(data.name, 'Jugador'),
                 channel: label(data.channel, ''), avatar: avatarUrl(data.avatar), sharing: false, peer: null, lastFrame: null, vdoStreamId: null,
                 lastInputAt: 0, lastLocationAt: 0, lastSelectAt: 0 };
@@ -105,22 +83,8 @@ module.exports = function attachGameJoySessions(io, app) {
             const p = players.get(socket.id);
             if (!p || p.role !== 'player') return;
             p.sharing = data?.enabled === true;
-            if (!p.sharing) { unpublishMap(p); p.lastFrame = null; p.vdoStreamId = null; unpair(p, 'El jugador dejó de compartir'); }
+            if (!p.sharing) { p.lastFrame = null; p.vdoStreamId = null; unpair(p, 'El jugador dejó de compartir'); }
             list();
-        });
-        socket.on('gamejoy:map-link', (data, ack) => {
-            const p = players.get(socket.id);
-            const key = data?.key;
-            if (!app || p?.role !== 'player' || !p.sharing || typeof key !== 'string' || !/^[a-f0-9]{32}$/.test(key)) {
-                if (typeof ack === 'function') ack({ success: false });
-                return;
-            }
-            // The publisher keeps the key across reconnects. Viewers get only its digest.
-            const token = crypto.createHash('sha256').update(key).digest('hex');
-            unpublishMap(p);
-            p.mapToken = token;
-            maps.set(token, p);
-            if (typeof ack === 'function') ack({ success: true, token });
         });
         socket.on('gamejoy:select', data => {
             const p = players.get(socket.id);
@@ -181,7 +145,6 @@ module.exports = function attachGameJoySessions(io, app) {
         socket.on('disconnect', () => {
             const p = players.get(socket.id);
             if (!p) return;
-            unpublishMap(p);
             unpair(p, 'El otro jugador se desconectó');
             players.delete(socket.id); list();
         });
