@@ -9,9 +9,10 @@
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
     body { display: grid; place-items: center; }
     main { position: relative; width: min(100vw, 100vh); height: min(100vw, 100vh);
-           box-sizing: border-box; overflow: hidden; border: 10px solid transparent; border-radius: 50%;
+           box-sizing: border-box; overflow: hidden; border: 12px solid transparent; border-radius: 50%;
            background: linear-gradient(#f6f8fa, #f6f8fa) padding-box,
-             conic-gradient(#936dff, #7956e8, #b18cff, #936dff) border-box;
+             conic-gradient(from 0deg, #59e1ff 0deg, #3579f6 90deg, #936dff 180deg,
+               #66c0f4 270deg, #59e1ff 360deg) border-box;
            color: #38434e; font: 500 15px system-ui, sans-serif; }
     #maps, #status, #indicator-wrap { position: absolute; inset: 4px; overflow: hidden; border-radius: 50%; }
     #maps iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
@@ -55,6 +56,12 @@
     let loading = null;
     let loadTimeout;
     let latestHeading = null;
+    let displayedHeading = null;
+    let headingAnimationFrame = null;
+    let headingAnimationStartedAt = 0;
+    let headingAnimationFrom = 0;
+    let headingAnimationTo = 0;
+    const headingAnimationDuration = 1000;
 
     function hide(message) {
       clearTimeout(loadTimeout);
@@ -63,12 +70,43 @@
       status.textContent = message;
       status.hidden = false;
       directionBeam.style.display = 'none';
+      if (headingAnimationFrame !== null) cancelAnimationFrame(headingAnimationFrame);
+      headingAnimationFrame = null;
+      displayedHeading = null;
+    }
+
+    function animateHeading(now) {
+      const progress = Math.min(1, (now - headingAnimationStartedAt) / headingAnimationDuration);
+      const eased = progress * progress * (3 - 2 * progress);
+      displayedHeading = headingAnimationFrom + (headingAnimationTo - headingAnimationFrom) * eased;
+      directionBeam.setAttribute('transform', 'rotate(' + displayedHeading + ' 100 100)');
+      if (progress < 1) headingAnimationFrame = requestAnimationFrame(animateHeading);
+      else headingAnimationFrame = null;
     }
 
     function showHeading() {
       const visible = Boolean(current) && Number.isFinite(latestHeading);
       directionBeam.style.display = visible ? 'inline' : 'none';
-      if (visible) directionBeam.setAttribute('transform', 'rotate(' + latestHeading + ' 100 100)');
+      if (!visible) {
+        if (headingAnimationFrame !== null) cancelAnimationFrame(headingAnimationFrame);
+        headingAnimationFrame = null;
+        displayedHeading = null;
+        return;
+      }
+      const nextHeading = ((latestHeading % 360) + 360) % 360;
+      if (displayedHeading === null) {
+        displayedHeading = nextHeading;
+        directionBeam.setAttribute('transform', 'rotate(' + displayedHeading + ' 100 100)');
+        return;
+      }
+      if (headingAnimationFrame !== null) cancelAnimationFrame(headingAnimationFrame);
+      headingAnimationFrame = null;
+      const delta = ((nextHeading - displayedHeading + 180) % 360 + 360) % 360 - 180;
+      if (Math.abs(delta) < 0.5) return;
+      headingAnimationFrom = displayedHeading;
+      headingAnimationTo = displayedHeading + delta;
+      headingAnimationStartedAt = performance.now();
+      headingAnimationFrame = requestAnimationFrame(animateHeading);
     }
 
     function showPosition(point) {
