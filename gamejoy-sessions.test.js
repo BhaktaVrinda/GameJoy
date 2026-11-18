@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const express = require('express');
 const { Server } = require('socket.io');
 const { io: client } = require('socket.io-client');
 const attach = require('./gamejoy-sessions');
@@ -118,6 +119,47 @@ test('pairs isolate commands, position and heading; revoke, switch and disconnec
         assert.equal(a.last('paired').reason, 'El otro jugador se desconectó');
     } finally {
         sockets.forEach(s => s.disconnect());
+        stop();
+        await new Promise(resolve => io.close(resolve));
+    }
+});
+
+test('OBS can read only the live position shared by the link owner', async () => {
+    const app = express();
+    const server = http.createServer(app);
+    const io = new Server(server);
+    const stop = attach(io, app);
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const owner = client(base, { reconnection: false });
+    const read = token => fetch(base + '/obs/position', { headers: { Authorization: 'Bearer ' + token } });
+    const key = 'a'.repeat(32);
+    const link = () => owner.timeout(1000).emitWithAck('gamejoy:map-link', { key });
+    try {
+        await until(() => owner.connected);
+        for (const path of ['/obs/map', '/obs/leaflet.css', '/obs/leaflet.js']) {
+            assert.equal((await fetch(base + path)).status, 200);
+        }
+        owner.emit('gamejoy:register', { role: 'player' });
+        assert.equal((await link()).success, false);
+        owner.emit('gamejoy:sharing', { enabled: true });
+        const { token } = await link();
+        assert.match(token, /^[0-9a-f]{64}$/);
+        assert.equal((await read(key)).status, 404);
+        assert.equal((await read(token)).status, 204);
+        owner.emit('gamejoy:location', { latitude: 40, longitude: -3, accuracy: 5, ageMs: 0, heading: 70 });
+        await link();
+        const result = await read(token);
+        assert.equal(result.headers.get('cache-control'), 'no-store');
+        assert.equal((await result.json()).heading, 70);
+        owner.emit('gamejoy:sharing', { enabled: false });
+        assert.equal((await link()).success, false);
+        assert.equal((await read(token)).status, 404);
+        owner.emit('gamejoy:register', { role: 'controller' });
+        owner.emit('gamejoy:sharing', { enabled: true });
+        assert.equal((await link()).success, false);
+    } finally {
+        owner.disconnect();
         stop();
         await new Promise(resolve => io.close(resolve));
     }

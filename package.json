@@ -6,7 +6,12 @@
     "start": "node server.js",
     "test": "node --test gamejoy-sessions.test.js"
   },
-  "keywords": ["gamejoy", "gamepad", "websocket", "multiplayer"],
+  "keywords": [
+    "gamejoy",
+    "gamepad",
+    "websocket",
+    "multiplayer"
+  ],
   "author": "",
   "license": "ISC",
   "description": "GameJoy WebSocket server for remote gamepad control and multiplayer games",
@@ -14,8 +19,9 @@
     "socket.io-client": "^4.8.3"
   },
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^5.2.1",
-    "socket.io": "^4.8.3",
-    "cors": "^2.8.5"
+    "leaflet": "1.9.4",
+    "socket.io": "^4.8.3"
   }
 }

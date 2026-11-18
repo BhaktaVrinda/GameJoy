@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin">
+  <title>Minimapa de GameJoy</title>
+  <link rel="stylesheet" href="/obs/leaflet.css">
+  <style>
+    html, body { height: 100%; margin: 0; background: transparent; }
+    body { display: grid; place-items: center; font: 600 16px system-ui, sans-serif; color: white; }
+    main { position: relative; width: 98vmin; height: 98vmin; border-radius: 50%; overflow: hidden;
+           box-shadow: 0 0 0 2px #86aac0; background: #172532; }
+    #map { position: absolute; inset: 0; }
+    #status { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 1em; }
+    main:not(.live) #map, main.live #status { visibility: hidden; }
+    .location { background: #1579ed; border: 3px solid white; box-sizing: border-box;
+                border-radius: 50%; box-shadow: 0 1px 5px #284b6d; }
+    .direction { position: absolute; left: 50%; bottom: 50%; width: 12px; height: 20px;
+                 transform-origin: center bottom; background: #1579ed; clip-path: polygon(50% 0,100% 100%,0 100%); }
+    #credit { position: absolute; bottom: 9%; left: 50%; transform: translateX(-50%);
+              z-index: 500; white-space: nowrap; background: #ffffffe8; padding: 1px 4px; border-radius: 4px;
+              font: 11px system-ui, sans-serif; color: #19334b; }
+    main:not(.live) #credit { display: none; }
+  </style>
+</head>
+<body>
+  <main><div id="map"></div><a id="credit" href="https://www.openstreetmap.org/copyright">© OpenStreetMap</a>
+    <div id="status" role="status">Esperando ubicación…</div></main>
+  <script src="/obs/leaflet.js"></script>
+  <script>
+    const panel = document.querySelector('main');
+    const status = document.getElementById('status');
+    const token = location.hash.slice(1);
+    const map = L.map('map', { zoomControl: false, attributionControl: false, dragging: false,
+      scrollWheelZoom: false, doubleClickZoom: false, touchZoom: false, keyboard: false });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    const direction = document.createElement('span');
+    direction.className = 'direction';
+    const marker = L.marker([0, 0], { interactive: false, keyboard: false,
+      icon: L.divIcon({ className: 'location', html: direction, iconSize: [20, 20] }) }).addTo(map);
+    function hide(message) {
+      panel.classList.remove('live');
+      status.textContent = message;
+    }
+    async function update() {
+      const abort = new AbortController();
+      const deadline = setTimeout(() => abort.abort(), 3500);
+      try {
+        const result = await fetch('/obs/position', { headers: { Authorization: 'Bearer ' + token },
+          cache: 'no-store', signal: abort.signal });
+        if (result.status === 404) return hide('Ubicación sin compartir');
+        if (result.status === 204) return hide('Esperando GPS…');
+        if (!result.ok) throw new Error();
+        const { latitude, longitude, heading } = await result.json();
+        map.setView([latitude, longitude], 16, { animate: false });
+        marker.setLatLng([latitude, longitude]);
+        direction.hidden = heading === null;
+        direction.style.transform = 'translateX(-50%) rotate(' + heading + 'deg)';
+        panel.classList.add('live');
+      } catch {
+        hide('Reconectando…');
+      } finally {
+        clearTimeout(deadline);
+        setTimeout(update, 1000);
+      }
+    }
+    if (/^[0-9a-f]{64}$/.test(token)) update();
+    else hide('Copia el enlace del mapa desde GameJoy');
+  </script>
+</body>
+</html>
