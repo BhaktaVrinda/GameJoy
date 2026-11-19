@@ -44,7 +44,7 @@ module.exports = function attachGameJoySessions(io, app) {
     const avatarUrl = v => typeof v === 'string' && v.length <= 2048 && /^https:\/\//i.test(v) ? v : '';
     const send = (id, event, data) => io.to(id).emit(`gamejoy:${event}`, data);
     const profile = p => ({ id: p.id, name: p.name, channel: p.channel, avatar: p.avatar, busy: !!p.peer,
-        vdoAvailable: typeof p.vdoStreamId === 'string' });
+        vdoAvailable: typeof p.vdoStreamId === 'string', sharingLocation: p.sharing === true });
     function list() {
         const available = [...players.values()].filter(p => p.role === 'player' && (p.sharing || typeof p.vdoStreamId === 'string')).map(profile);
         for (const p of players.values()) if (p.role === 'controller') send(p.id, 'players', available);
