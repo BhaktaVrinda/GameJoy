@@ -46,7 +46,7 @@ module.exports = function attachGameJoySessions(io, app) {
     const profile = p => ({ id: p.id, name: p.name, channel: p.channel, avatar: p.avatar, busy: !!p.peer,
         vdoAvailable: typeof p.vdoStreamId === 'string' });
     function list() {
-        const available = [...players.values()].filter(p => p.role === 'player' && p.sharing).map(profile);
+        const available = [...players.values()].filter(p => p.role === 'player' && (p.sharing || typeof p.vdoStreamId === 'string')).map(profile);
         for (const p of players.values()) if (p.role === 'controller') send(p.id, 'players', available);
     }
     function unpair(p, reason = 'Partida desconectada') {
@@ -88,7 +88,7 @@ module.exports = function attachGameJoySessions(io, app) {
         });
         socket.on('gamejoy:vdo', (data, ack) => {
             const p = players.get(socket.id);
-            if (!p || p.role !== 'player' || !p.sharing) {
+            if (!p || p.role !== 'player') {
                 if (typeof ack === 'function') ack({ success: false });
                 return;
             }
@@ -101,6 +101,7 @@ module.exports = function attachGameJoySessions(io, app) {
                 p.vdoStreamId = streamId;
             } else {
                 p.vdoStreamId = null;
+                if (!p.sharing && p.peer) unpair(p, 'El jugador dejó de compartir vídeo');
             }
             list();
             const peer = players.get(p.peer);
@@ -110,7 +111,7 @@ module.exports = function attachGameJoySessions(io, app) {
         socket.on('gamejoy:vdo-link', (data, ack) => {
             const p = players.get(socket.id);
             const key = data?.key;
-            if (!app || p?.role !== 'player' || !p.sharing || typeof key !== 'string' || !/^[a-f0-9]{32}$/.test(key)) {
+            if (!app || p?.role !== 'player' || typeof key !== 'string' || !/^[a-f0-9]{32}$/.test(key)) {
                 if (typeof ack === 'function') ack({ success: false });
                 return;
             }
@@ -129,7 +130,7 @@ module.exports = function attachGameJoySessions(io, app) {
             const controller = players.get(socket.id);
             const target = players.get(typeof data?.id === 'string' ? data.id : '');
             const allowed = controller?.role === 'controller' && target?.role === 'player' &&
-                target.sharing && typeof target.vdoStreamId === 'string';
+                typeof target.vdoStreamId === 'string';
             if (typeof ack === 'function') ack(allowed ? { success: true, streamId: target.vdoStreamId } : { success: false });
         });
         socket.on('gamejoy:sharing', data => {
@@ -137,8 +138,8 @@ module.exports = function attachGameJoySessions(io, app) {
             if (!p || p.role !== 'player') return;
             p.sharing = data?.enabled === true;
             if (!p.sharing) {
-                unpublishMap(p); unpublishObsVdoLink(p);
-                p.lastFrame = null; p.vdoStreamId = null;
+                unpublishMap(p);
+                p.lastFrame = null;
                 unpair(p, 'El jugador dejó de compartir');
             }
             list();
@@ -166,7 +167,7 @@ module.exports = function attachGameJoySessions(io, app) {
             if (p.peer === id && target?.peer === p.id) return;
             if (Date.now() - p.lastSelectAt < 300) return;
             p.lastSelectAt = Date.now();
-            if (!target || target.role !== 'player' || !target.sharing || target.peer) {
+            if (!target || target.role !== 'player' || (!target.sharing && typeof target.vdoStreamId !== 'string') || target.peer) {
                 send(p.id, 'error', { message: 'Ese jugador ya no está disponible' }); return;
             }
             unpair(p);
@@ -185,7 +186,7 @@ module.exports = function attachGameJoySessions(io, app) {
         });
         socket.on('gamejoy:input', data => {
             const p = players.get(socket.id), target = players.get(p?.peer);
-            if (!p || p.role !== 'controller' || !target || target.peer !== p.id || !target.sharing) return;
+            if (!p || p.role !== 'controller' || !target || target.peer !== p.id || (!target.sharing && typeof target.vdoStreamId !== 'string')) return;
             if (!data || !['joystick', 'press', 'release'].includes(data.kind)) return;
             let input;
             if (data.kind === 'joystick') {
