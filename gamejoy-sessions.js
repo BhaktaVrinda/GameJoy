@@ -8,16 +8,42 @@ module.exports = function attachGameJoySessions(io, app) {
     const players = new Map();
     const maps = new Map();
     const obsVdoLinks = new Map();
+    const obsInputRoom = token => `obs-input:${token}`;
+    function publishObsInput(p, x, y) {
+        if (!p) return;
+        const active = Math.hypot(x, y) > 0.1;
+        p.obsInputState = { x, y, active, receivedAt: Date.now() };
+        for (const token of new Set([p.mapToken, p.obsVdoToken])) {
+            if (token && (maps.get(token) === p || obsVdoLinks.get(token) === p)) {
+                io.to(obsInputRoom(token)).emit('gamejoy:obs-input', { x, y, active });
+            }
+        }
+    }
+    function clearObsInput(p) { publishObsInput(p, 0, 0); }
+    function obsInputSnapshot(p) {
+        const state = p?.obsInputState;
+        if (!state || !p.peer || Date.now() - state.receivedAt > 1800) return { x: 0, y: 0, active: false };
+        return { x: state.x, y: state.y, active: state.active };
+    }
     function unpublishMap(p) {
-        if (maps.get(p.mapToken) === p) maps.delete(p.mapToken);
+        if (p.mapToken && maps.get(p.mapToken) === p) {
+            publishObsInput(p, 0, 0);
+            io.to(obsInputRoom(p.mapToken)).emit('gamejoy:obs-stopped', {});
+            maps.delete(p.mapToken);
+        }
         p.mapToken = null;
     }
     function unpublishObsVdoLink(p) {
-        if (obsVdoLinks.get(p.obsVdoToken) === p) obsVdoLinks.delete(p.obsVdoToken);
+        if (p.obsVdoToken && obsVdoLinks.get(p.obsVdoToken) === p) {
+            publishObsInput(p, 0, 0);
+            io.to(obsInputRoom(p.obsVdoToken)).emit('gamejoy:obs-stopped', {});
+            obsVdoLinks.delete(p.obsVdoToken);
+        }
         p.obsVdoToken = null;
     }
     if (app) {
         app.get('/obs/map', (_req, res) => res.sendFile(path.join(__dirname, 'obs-map.html')));
+        app.get('/obs/arrow', (_req, res) => res.sendFile(path.join(__dirname, 'obs-arrow.html')));
         app.get('/obs/vdo', (_req, res) => res.sendFile(path.join(__dirname, 'obs-vdo.html')));
         app.get('/obs/vdo/current', (req, res) => {
             res.set('Cache-Control', 'no-store');
@@ -53,6 +79,8 @@ module.exports = function attachGameJoySessions(io, app) {
     }
     function unpair(p, reason = 'Partida desconectada') {
         const peer = players.get(p.peer);
+        clearObsInput(p);
+        clearObsInput(peer);
         p.peer = null;
         send(p.id, 'paired', { peer: null, reason });
         if (peer && peer.peer === p.id) {
@@ -64,13 +92,30 @@ module.exports = function attachGameJoySessions(io, app) {
     }
     io.on('connection', socket => {
         socket.emit('gamejoy:hello', { version: 1 });
+        socket.on('gamejoy:obs-subscribe', (data = {}) => {
+            if (socket.obsInputRoom) {
+                socket.leave(socket.obsInputRoom);
+                socket.obsInputRoom = null;
+            }
+            const token = typeof data?.token === 'string' ? data.token : '';
+            const target = /^[a-f0-9]{64}$/.test(token) ? (maps.get(token) || obsVdoLinks.get(token)) : null;
+            if (!target || target.role !== 'player') {
+                socket.emit('gamejoy:obs-error', { message: 'Overlay no disponible' });
+                return;
+            }
+            const room = obsInputRoom(token);
+            socket.join(room);
+            socket.obsInputRoom = room;
+            socket.emit('gamejoy:obs-ready', {});
+            socket.emit('gamejoy:obs-input', obsInputSnapshot(target));
+        });
         socket.on('gamejoy:register', (data = {}) => {
             if (!data || !['player', 'controller'].includes(data.role)) return;
             const old = players.get(socket.id);
             if (old) { unpublishMap(old); unpublishObsVdoLink(old); unpair(old); }
             const p = { id: socket.id, role: data.role, name: label(data.name, 'Jugador'),
                 channel: label(data.channel, ''), avatar: avatarUrl(data.avatar), sharing: false, peer: null, lastFrame: null, vdoStreamId: null,
-                mapToken: null, obsVdoToken: null, lastInputAt: 0, lastLocationAt: 0, lastSelectAt: 0 };
+                mapToken: null, obsVdoToken: null, obsInputState: null, lastInputAt: 0, lastLocationAt: 0, lastSelectAt: 0 };
             players.set(socket.id, p);
             socket.emit('gamejoy:ready', { version: 1 });
             list();
@@ -181,6 +226,7 @@ module.exports = function attachGameJoySessions(io, app) {
             }
             unpair(p);
             p.peer = target.id; target.peer = p.id;
+            clearObsInput(target);
             send(p.id, 'paired', { peer: peerProfile(target) });
             send(target.id, 'paired', { peer: profile(p) });
             if (target.lastFrame && Date.now() - target.lastFrame.receivedAt < 10000) {
@@ -207,6 +253,7 @@ module.exports = function attachGameJoySessions(io, app) {
             }
             p.lastInputAt = Date.now();
             send(target.id, 'input', input);
+            if (input.kind === 'joystick') publishObsInput(target, input.x, input.y);
         });
         socket.on('gamejoy:location', data => {
             const p = players.get(socket.id);
@@ -240,7 +287,9 @@ module.exports = function attachGameJoySessions(io, app) {
                 if (p.peer) send(p.peer, 'location-stopped', {});
             }
             if (p.role === 'controller' && p.peer && p.lastInputAt && now - p.lastInputAt > 2500) {
-                send(p.peer, 'reset', {}); p.lastInputAt = 0;
+                send(p.peer, 'reset', {});
+                clearObsInput(players.get(p.peer));
+                p.lastInputAt = 0;
             }
         }
     }, 1000);
