@@ -275,10 +275,14 @@ function updateArrow(x, y, magnitude) {
   const reach = 0.62 + magnitude * 0.38;
   const start = new THREE.Vector3(0, 0.22, 0);
   const end = new THREE.Vector3(x * 2.85 * reach, 0.22, deltaZ);
-  const curveAmount = x * (0.2 + magnitude * 0.34);
-  const middle1 = new THREE.Vector3(end.x * 0.06, 0.22, deltaZ * 0.3 - curveAmount);
-  const middle2 = new THREE.Vector3(end.x * 0.74, 0.22, deltaZ * 0.76 + curveAmount * 0.34);
-  const curve = new THREE.CatmullRomCurve3([start, middle1, middle2, end], false, 'centripetal', 0.5);
+  const direction = end.clone().sub(start);
+  const side = new THREE.Vector3(-direction.z, 0, direction.x).normalize();
+  const curveAmount = x * (0.16 + magnitude * 0.22);
+  const control1 = start.clone().addScaledVector(direction, 0.3)
+    .addScaledVector(side, curveAmount * 0.38);
+  const control2 = start.clone().addScaledVector(direction, 0.76)
+    .addScaledVector(side, curveAmount);
+  const curve = new THREE.CubicBezierCurve3(start, control1, control2, end);
 
   for (const [mesh, radius] of [[arrowGlowShaft, 0.17], [arrowShaft, 0.074]]) {
     const oldGeometry = mesh.geometry;
