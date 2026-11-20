@@ -15,7 +15,7 @@ const tiltRange = document.getElementById('tilt-range');
 const tiltValue = document.getElementById('tilt-value');
 const modelToggle = document.getElementById('model-toggle');
 const modelValue = document.getElementById('model-value');
-const modelPreferenceKey = `gamejoy.obs.arrow.model.${token || 'default'}`;
+const modelPreferenceKey = `gamejoy.obs.arrow.model.v2.${token || 'default'}`;
 
 function setStatus(message) {
   status.textContent = message;
@@ -184,42 +184,83 @@ joystickKnobRim.rotation.x = Math.PI / 2;
 joystickKnobRim.position.y = 0.17;
 joystickKnob.add(joystickKnobRim);
 
-// Alternate model: the original curved 3D arrow, which bends with the input.
+// Screenshot-style arrow: a curved blue ribbon, triangular tip, and blue origin.
 const arrowModel = new THREE.Group();
 arrowModel.position.z = joystickPosition.z;
-arrowModel.visible = false;
+arrowModel.visible = true;
 scene.add(arrowModel);
 
-const arrowGlowMaterial = new THREE.MeshBasicMaterial({
-  color: 0x12baff,
+const arrowTrail = new THREE.Group();
+arrowTrail.visible = false;
+arrowModel.add(arrowTrail);
+
+const arrowShadowMaterial = new THREE.MeshBasicMaterial({
+  color: 0x173d5c,
   transparent: true,
-  opacity: 0.17,
+  opacity: 0.56,
+  side: THREE.DoubleSide,
+  depthWrite: false
+});
+const arrowGlowMaterial = new THREE.MeshBasicMaterial({
+  color: 0x31c8ff,
+  transparent: true,
+  opacity: 0.14,
   side: THREE.DoubleSide,
   depthWrite: false
 });
 const arrowShaftMaterial = new THREE.MeshStandardMaterial({
-  color: 0x58e5ff,
-  emissive: 0x159fff,
-  emissiveIntensity: 1.45,
-  roughness: 0.24,
-  metalness: 0.16
+  vertexColors: true,
+  emissive: 0x06446f,
+  emissiveIntensity: 0.55,
+  roughness: 0.3,
+  metalness: 0.08,
+  side: THREE.DoubleSide
 });
 const arrowHeadMaterial = new THREE.MeshStandardMaterial({
-  color: 0x9af5ff,
-  emissive: 0x168fff,
-  emissiveIntensity: 1.65,
-  roughness: 0.2,
-  metalness: 0.1
+  vertexColors: true,
+  emissive: 0x063b72,
+  emissiveIntensity: 0.55,
+  roughness: 0.24,
+  metalness: 0.12,
+  side: THREE.DoubleSide
 });
-const arrowGlowShaft = new THREE.Mesh(new THREE.BufferGeometry(), arrowGlowMaterial);
+const arrowHeadOutlineMaterial = new THREE.LineBasicMaterial({
+  color: 0x8feaff,
+  transparent: true,
+  opacity: 0.72,
+  depthWrite: false
+});
+const arrowShadow = new THREE.Mesh(new THREE.BufferGeometry(), arrowShadowMaterial);
+const arrowGlow = new THREE.Mesh(new THREE.BufferGeometry(), arrowGlowMaterial);
 const arrowShaft = new THREE.Mesh(new THREE.BufferGeometry(), arrowShaftMaterial);
-const arrowGlowHead = new THREE.Mesh(
-  new THREE.ConeGeometry(0.43, 0.98, 8), arrowGlowMaterial
+const arrowHeadShadow = new THREE.Mesh(new THREE.BufferGeometry(), arrowShadowMaterial);
+const arrowHead = new THREE.Mesh(new THREE.BufferGeometry(), arrowHeadMaterial);
+const arrowHeadOutline = new THREE.LineLoop(new THREE.BufferGeometry(), arrowHeadOutlineMaterial);
+arrowTrail.add(arrowShadow, arrowGlow, arrowShaft, arrowHeadShadow, arrowHead, arrowHeadOutline);
+
+const arrowOriginHalo = new THREE.Mesh(
+  new THREE.CircleGeometry(0.23, 48),
+  new THREE.MeshBasicMaterial({ color: 0x42d7ff, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide })
 );
-const arrowHead = new THREE.Mesh(
-  new THREE.ConeGeometry(0.29, 0.72, 8), arrowHeadMaterial
+arrowOriginHalo.rotation.x = -Math.PI / 2;
+arrowOriginHalo.position.y = 0.19;
+const arrowOriginRing = new THREE.Mesh(
+  new THREE.TorusGeometry(0.14, 0.024, 8, 40),
+  new THREE.MeshBasicMaterial({ color: 0x55dcff, transparent: true, opacity: 0.94 })
 );
-arrowModel.add(arrowGlowShaft, arrowShaft, arrowGlowHead, arrowHead);
+arrowOriginRing.rotation.x = Math.PI / 2;
+arrowOriginRing.position.y = 0.245;
+const arrowOriginDot = new THREE.Mesh(
+  new THREE.SphereGeometry(0.092, 24, 16),
+  new THREE.MeshStandardMaterial({ color: 0x43d3ff, emissive: 0x0799ce, emissiveIntensity: 0.75, roughness: 0.22, metalness: 0.08 })
+);
+arrowOriginDot.position.y = 0.29;
+const arrowOriginCore = new THREE.Mesh(
+  new THREE.SphereGeometry(0.038, 16, 12),
+  new THREE.MeshBasicMaterial({ color: 0xeaffff })
+);
+arrowOriginCore.position.y = 0.365;
+arrowModel.add(arrowOriginHalo, arrowOriginRing, arrowOriginDot, arrowOriginCore);
 
 let targetX = 0;
 let targetY = 0;
@@ -230,15 +271,15 @@ let lastPacketAt = 0;
 let lastFrameAt = 0;
 let arrowActive = false;
 let lastArrowKey = '';
-let currentModel = 'joystick';
+let currentModel = 'arrow';
 try {
-  if (localStorage.getItem(modelPreferenceKey) === 'arrow') currentModel = 'arrow';
+  if (localStorage.getItem(modelPreferenceKey) === 'joystick') currentModel = 'joystick';
 } catch (_) {}
 
 function syncModelSelection(persist = false) {
   const showJoystick = currentModel === 'joystick';
   joystickModel.visible = showJoystick;
-  arrowModel.visible = !showJoystick && arrowActive;
+  arrowModel.visible = !showJoystick;
   modelValue.textContent = showJoystick ? 'Joystick' : 'Flecha';
   modelToggle.textContent = showJoystick ? 'Cambiar a flecha' : 'Cambiar a joystick';
   if (persist) {
@@ -267,6 +308,70 @@ function acceptInput(data) {
   }
 }
 
+const ribbonColors = [
+  new THREE.Color(0x2879b8),
+  new THREE.Color(0x67e7ff),
+  new THREE.Color(0x2586d4)
+];
+const headColors = [
+  new THREE.Color(0x72efff),
+  new THREE.Color(0x2588e8),
+  new THREE.Color(0x286ac0)
+];
+
+function makeRibbonGeometry(curve, endT, widthScale, height, offsetZ) {
+  const segments = 48;
+  const positions = [];
+  const colors = [];
+  const indices = [];
+
+  for (let i = 0; i <= segments; i++) {
+    const progress = i / segments;
+    const point = curve.getPoint(endT * progress);
+    const tangent = curve.getTangent(endT * progress).setY(0).normalize();
+    const side = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
+    const halfWidth = (0.09 + progress * 0.02) * widthScale;
+    const left = point.clone().addScaledVector(side, halfWidth);
+    const right = point.clone().addScaledVector(side, -halfWidth);
+    left.z += offsetZ;
+    right.z += offsetZ;
+    positions.push(left.x, height, left.z, point.x, height, point.z + offsetZ, right.x, height, right.z);
+    for (const color of ribbonColors) colors.push(color.r, color.g, color.b);
+
+    if (i < segments) {
+      const row = i * 3;
+      indices.push(row, row + 1, row + 3, row + 1, row + 4, row + 3);
+      indices.push(row + 1, row + 2, row + 4, row + 2, row + 5, row + 4);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function makeArrowheadGeometry(base, tip, side, halfWidth, height, offsetZ, widthScale = 1) {
+  const left = base.clone().addScaledVector(side, halfWidth * widthScale);
+  const right = base.clone().addScaledVector(side, -halfWidth * widthScale);
+  const vertices = [tip, left, right].map(point => [point.x, height, point.z + offsetZ]).flat();
+  const colors = headColors.flatMap(color => [color.r, color.g, color.b]);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setIndex([0, 1, 2]);
+  geometry.computeVertexNormals();
+  return { geometry, left, right };
+}
+
+function replaceGeometry(mesh, geometry) {
+  const previous = mesh.geometry;
+  mesh.geometry = geometry;
+  previous.dispose();
+}
+
 function updateArrow(x, y, magnitude) {
   const forward = Math.max(0, y);
   const backward = Math.max(0, -y);
@@ -283,20 +388,22 @@ function updateArrow(x, y, magnitude) {
   const control2 = start.clone().addScaledVector(direction, 0.76)
     .addScaledVector(side, curveAmount);
   const curve = new THREE.CubicBezierCurve3(start, control1, control2, end);
-
-  for (const [mesh, radius] of [[arrowGlowShaft, 0.17], [arrowShaft, 0.074]]) {
-    const oldGeometry = mesh.geometry;
-    mesh.geometry = new THREE.TubeGeometry(curve, 42, radius * (0.9 + magnitude * 0.1), 12, false);
-    oldGeometry.dispose();
-  }
-
+  const headBaseT = 0.78;
+  const headBase = curve.getPoint(headBaseT);
   const tip = curve.getPoint(1);
-  const tangent = curve.getTangent(1).normalize();
-  const axis = new THREE.Vector3(0, 1, 0);
-  for (const [mesh, height] of [[arrowGlowHead, 0.98], [arrowHead, 0.72]]) {
-    mesh.position.copy(tip).addScaledVector(tangent, -height * 0.47);
-    mesh.quaternion.setFromUnitVectors(axis, tangent);
-  }
+  const headDirection = tip.clone().sub(headBase).setY(0).normalize();
+  const headSide = new THREE.Vector3(-headDirection.z, 0, headDirection.x).normalize();
+  const headWidth = 0.44 * (0.88 + magnitude * 0.12);
+
+  replaceGeometry(arrowShadow, makeRibbonGeometry(curve, headBaseT, 1.45, 0.17, 0.04));
+  replaceGeometry(arrowGlow, makeRibbonGeometry(curve, headBaseT, 1.95, 0.205, 0));
+  replaceGeometry(arrowShaft, makeRibbonGeometry(curve, headBaseT, 1, 0.24, 0));
+
+  replaceGeometry(arrowHeadShadow, makeArrowheadGeometry(headBase, tip, headSide, headWidth, 0.18, 0.045, 1.16).geometry);
+  const head = makeArrowheadGeometry(headBase, tip, headSide, headWidth, 0.255, 0, 1);
+  replaceGeometry(arrowHead, head.geometry);
+  const outlinePoints = [head.left, tip, head.right].map(point => new THREE.Vector3(point.x, 0.265, point.z));
+  replaceGeometry(arrowHeadOutline, new THREE.BufferGeometry().setFromPoints(outlinePoints));
 }
 
 function resize() {
@@ -328,7 +435,8 @@ function render(now) {
   joystickKnob.position.z = joystickPosition.z - currentY * directionScale * joystickTravel;
   arrowActive = targetActive || magnitude > 0.075;
   joystickModel.visible = currentModel === 'joystick';
-  arrowModel.visible = currentModel === 'arrow' && arrowActive;
+  arrowModel.visible = currentModel === 'arrow';
+  arrowTrail.visible = currentModel === 'arrow' && arrowActive;
 
   const arrowKey = `${Math.round(currentX * 80)}:${Math.round(currentY * 80)}`;
   if (currentModel === 'arrow' && arrowActive && arrowKey !== lastArrowKey) {
