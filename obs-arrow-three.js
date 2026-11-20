@@ -6,6 +6,13 @@ const token = location.hash.slice(1);
 const debug = new URLSearchParams(location.search).get('debug') === '1';
 const deadZone = 0.1;
 const staleAfterMs = 2400;
+const DEFAULT_VIEW_ELEVATION = 68;
+const MIN_VIEW_ELEVATION = 40;
+const MAX_VIEW_ELEVATION = 85;
+const viewPreferenceKey = `gamejoy.obs.arrow.view.${token || 'default'}`;
+const tiltPanel = document.getElementById('tilt-panel');
+const tiltRange = document.getElementById('tilt-range');
+const tiltValue = document.getElementById('tilt-value');
 
 function setStatus(message) {
   status.textContent = message;
@@ -32,8 +39,48 @@ try {
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(39, window.innerWidth / window.innerHeight, 0.1, 80);
-camera.position.set(0, 8.2, 12.5);
-camera.lookAt(0, 0, -1.2);
+const cameraTarget = new THREE.Vector3(0, 0, -1.2);
+const cameraOrbitDistance = 16;
+function setViewElevation(degrees, persist = false) {
+  const elevation = THREE.MathUtils.clamp(degrees, MIN_VIEW_ELEVATION, MAX_VIEW_ELEVATION);
+  const radians = THREE.MathUtils.degToRad(elevation);
+  camera.position.set(
+    cameraTarget.x,
+    cameraTarget.y + Math.sin(radians) * cameraOrbitDistance,
+    cameraTarget.z + Math.cos(radians) * cameraOrbitDistance
+  );
+  camera.lookAt(cameraTarget);
+  tiltRange.value = String(Math.round(elevation));
+  tiltValue.value = `${Math.round(elevation)}°`;
+  if (persist) {
+    try { localStorage.setItem(viewPreferenceKey, String(elevation)); } catch (_) {}
+  }
+}
+
+let initialViewElevation = DEFAULT_VIEW_ELEVATION;
+try {
+  const savedView = Number(localStorage.getItem(viewPreferenceKey));
+  if (Number.isFinite(savedView) && savedView >= MIN_VIEW_ELEVATION && savedView <= MAX_VIEW_ELEVATION) {
+    initialViewElevation = savedView;
+  }
+} catch (_) {}
+setViewElevation(initialViewElevation);
+
+tiltRange.addEventListener('input', () => setViewElevation(Number(tiltRange.value), true));
+document.getElementById('tilt-reset').addEventListener('click', () => {
+  setViewElevation(DEFAULT_VIEW_ELEVATION, true);
+});
+document.getElementById('tilt-close').addEventListener('click', () => { tiltPanel.hidden = true; });
+window.addEventListener('keydown', event => {
+  const isEditingControl = event.target instanceof HTMLElement &&
+    event.target.closest('input, button, textarea, select');
+  if (!isEditingControl && event.key.toLowerCase() === 't') {
+    tiltPanel.hidden = !tiltPanel.hidden;
+    event.preventDefault();
+  } else if (event.key === 'Escape') {
+    tiltPanel.hidden = true;
+  }
+});
 
 scene.add(new THREE.AmbientLight(0x9bdfff, 1.6));
 const keyLight = new THREE.DirectionalLight(0xe9fbff, 2.7);
