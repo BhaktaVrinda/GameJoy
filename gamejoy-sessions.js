@@ -44,7 +44,9 @@ module.exports = function attachGameJoySessions(io, app) {
     const avatarUrl = v => typeof v === 'string' && v.length <= 2048 && /^https:\/\//i.test(v) ? v : '';
     const send = (id, event, data) => io.to(id).emit(`gamejoy:${event}`, data);
     const profile = p => ({ id: p.id, name: p.name, channel: p.channel, avatar: p.avatar, busy: !!p.peer,
-        vdoAvailable: typeof p.vdoStreamId === 'string', sharingLocation: p.sharing === true });
+        vdoAvailable: typeof p.vdoStreamId === 'string', sharingLocation: p.sharing === true,
+        vdoOrientation: p.vdoOrientation ?? null });
+    const peerProfile = p => ({ ...profile(p), vdoStreamId: p.vdoStreamId });
     function list() {
         const available = [...players.values()].filter(p => p.role === 'player' && (p.sharing || typeof p.vdoStreamId === 'string')).map(profile);
         for (const p of players.values()) if (p.role === 'controller') send(p.id, 'players', available);
@@ -83,7 +85,7 @@ module.exports = function attachGameJoySessions(io, app) {
             p.channel = channel;
             list();
             const peer = players.get(p.peer);
-            if (peer?.peer === p.id) send(peer.id, 'peer-profile', profile(p));
+            if (peer?.peer === p.id) send(peer.id, 'peer-profile', peerProfile(p));
             if (typeof ack === 'function') ack({ success: true, channel });
         });
         socket.on('gamejoy:vdo', (data, ack) => {
@@ -99,13 +101,15 @@ module.exports = function attachGameJoySessions(io, app) {
                     return;
                 }
                 p.vdoStreamId = streamId;
+                p.vdoOrientation = ['portrait', 'landscape'].includes(data.orientation) ? data.orientation : null;
             } else {
                 p.vdoStreamId = null;
+                p.vdoOrientation = null;
                 if (!p.sharing && p.peer) unpair(p, 'El jugador dejó de compartir vídeo');
             }
             list();
             const peer = players.get(p.peer);
-            if (peer?.peer === p.id) send(peer.id, 'peer-profile', profile(p));
+            if (peer?.peer === p.id) send(peer.id, 'peer-profile', peerProfile(p));
             if (typeof ack === 'function') ack({ success: true });
         });
         socket.on('gamejoy:vdo-link', (data, ack) => {
@@ -131,7 +135,12 @@ module.exports = function attachGameJoySessions(io, app) {
             const target = players.get(typeof data?.id === 'string' ? data.id : '');
             const allowed = controller?.role === 'controller' && target?.role === 'player' &&
                 typeof target.vdoStreamId === 'string';
-            if (typeof ack === 'function') ack(allowed ? { success: true, streamId: target.vdoStreamId } : { success: false });
+            if (typeof ack === 'function') {
+                if (!allowed) return ack({ success: false });
+                const reply = { success: true, streamId: target.vdoStreamId };
+                if (target.vdoOrientation) reply.vdoOrientation = target.vdoOrientation;
+                ack(reply);
+            }
         });
         socket.on('gamejoy:sharing', data => {
             const p = players.get(socket.id);
@@ -172,7 +181,7 @@ module.exports = function attachGameJoySessions(io, app) {
             }
             unpair(p);
             p.peer = target.id; target.peer = p.id;
-            send(p.id, 'paired', { peer: profile(target) });
+            send(p.id, 'paired', { peer: peerProfile(target) });
             send(target.id, 'paired', { peer: profile(p) });
             if (target.lastFrame && Date.now() - target.lastFrame.receivedAt < 10000) {
                 send(p.id, 'location', { ...target.lastFrame,
