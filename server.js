@@ -10,6 +10,7 @@ app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules', 'th
     maxAge: '30d',
     immutable: true
 }));
+app.get('/obs-arrow-three.js', (_req, res) => res.sendFile(path.join(__dirname, 'obs-arrow-three.js')));
 
 const server = http.createServer(app);
 const io = new Server(server, {
