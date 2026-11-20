@@ -19,6 +19,23 @@ module.exports = function attachGameJoySessions(io, app) {
             }
         }
     }
+    function publishObsButton(p, button, pressed) {
+        if (!p || !p.obsButtons) return;
+        if (pressed) p.obsButtons.add(button);
+        else p.obsButtons.delete(button);
+        for (const token of new Set([p.mapToken, p.obsVdoToken])) {
+            if (token && (maps.get(token) === p || obsVdoLinks.get(token) === p)) {
+                io.to(obsInputRoom(token)).emit('gamejoy:obs-button', { button, pressed });
+            }
+        }
+    }
+    function clearObsButtons(p) {
+        if (!p?.obsButtons) return;
+        for (const button of [...p.obsButtons]) publishObsButton(p, button, false);
+    }
+    function obsButtonsSnapshot(p) {
+        return p?.peer && p.obsButtons ? [...p.obsButtons] : [];
+    }
     function clearObsInput(p) { publishObsInput(p, 0, 0); }
     function obsInputSnapshot(p) {
         const state = p?.obsInputState;
@@ -44,6 +61,7 @@ module.exports = function attachGameJoySessions(io, app) {
     if (app) {
         app.get('/obs/map', (_req, res) => res.sendFile(path.join(__dirname, 'obs-map.html')));
         app.get('/obs/arrow', (_req, res) => res.sendFile(path.join(__dirname, 'obs-arrow.html')));
+        app.get('/obs/buttons', (_req, res) => res.sendFile(path.join(__dirname, 'obs-buttons.html')));
         app.get('/obs/vdo', (_req, res) => res.sendFile(path.join(__dirname, 'obs-vdo.html')));
         app.get('/obs/vdo/current', (req, res) => {
             res.set('Cache-Control', 'no-store');
@@ -81,6 +99,8 @@ module.exports = function attachGameJoySessions(io, app) {
         const peer = players.get(p.peer);
         clearObsInput(p);
         clearObsInput(peer);
+        clearObsButtons(p);
+        clearObsButtons(peer);
         p.peer = null;
         send(p.id, 'paired', { peer: null, reason });
         if (peer && peer.peer === p.id) {
@@ -108,6 +128,7 @@ module.exports = function attachGameJoySessions(io, app) {
             socket.obsInputRoom = room;
             socket.emit('gamejoy:obs-ready', {});
             socket.emit('gamejoy:obs-input', obsInputSnapshot(target));
+            socket.emit('gamejoy:obs-buttons', { buttons: obsButtonsSnapshot(target) });
         });
         socket.on('gamejoy:register', (data = {}) => {
             if (!data || !['player', 'controller'].includes(data.role)) return;
@@ -115,7 +136,7 @@ module.exports = function attachGameJoySessions(io, app) {
             if (old) { unpublishMap(old); unpublishObsVdoLink(old); unpair(old); }
             const p = { id: socket.id, role: data.role, name: label(data.name, 'Jugador'),
                 channel: label(data.channel, ''), avatar: avatarUrl(data.avatar), sharing: false, peer: null, lastFrame: null, vdoStreamId: null,
-                mapToken: null, obsVdoToken: null, obsInputState: null, lastInputAt: 0, lastLocationAt: 0, lastSelectAt: 0 };
+                mapToken: null, obsVdoToken: null, obsInputState: null, obsButtons: new Set(), lastInputAt: 0, lastLocationAt: 0, lastSelectAt: 0 };
             players.set(socket.id, p);
             socket.emit('gamejoy:ready', { version: 1 });
             list();
@@ -227,6 +248,7 @@ module.exports = function attachGameJoySessions(io, app) {
             unpair(p);
             p.peer = target.id; target.peer = p.id;
             clearObsInput(target);
+            clearObsButtons(target);
             send(p.id, 'paired', { peer: peerProfile(target) });
             send(target.id, 'paired', { peer: profile(p) });
             if (target.lastFrame && Date.now() - target.lastFrame.receivedAt < 10000) {
@@ -254,6 +276,9 @@ module.exports = function attachGameJoySessions(io, app) {
             p.lastInputAt = Date.now();
             send(target.id, 'input', input);
             if (input.kind === 'joystick') publishObsInput(target, input.x, input.y);
+            else if (['A', 'B', 'X', 'Y'].includes(input.button)) {
+                publishObsButton(target, input.button, input.kind === 'press');
+            }
         });
         socket.on('gamejoy:location', data => {
             const p = players.get(socket.id);
@@ -287,8 +312,10 @@ module.exports = function attachGameJoySessions(io, app) {
                 if (p.peer) send(p.peer, 'location-stopped', {});
             }
             if (p.role === 'controller' && p.peer && p.lastInputAt && now - p.lastInputAt > 2500) {
+                const target = players.get(p.peer);
                 send(p.peer, 'reset', {});
-                clearObsInput(players.get(p.peer));
+                clearObsInput(target);
+                clearObsButtons(target);
                 p.lastInputAt = 0;
             }
         }
