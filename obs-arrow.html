@@ -19,9 +19,9 @@
 </head>
 <body>
   <canvas id="arrow" aria-hidden="true"></canvas>
-  <div id="status" role="status" hidden></div>
+  <div id="status" role="status">Cargando el espacio 3D…</div>
   <script src="/socket.io/socket.io.js"></script>
-  <script>
+  <script type="module" src="/obs-arrow-three.js">
     (() => {
       'use strict';
       const canvas = document.getElementById('arrow');

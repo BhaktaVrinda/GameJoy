@@ -1,10 +1,15 @@
 const express = require('express');
 const http = require('http');
+const path = require('node:path');
 const { Server } = require('socket.io');
 const cors = require('cors');
 
 const app = express();
 app.use(cors());
+app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules', 'three', 'build'), {
+    maxAge: '30d',
+    immutable: true
+}));
 
 const server = http.createServer(app);
 const io = new Server(server, {
