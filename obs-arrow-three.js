@@ -124,77 +124,60 @@ function syncCalibrationScene() {
   grid.visible = showCalibration;
 }
 
-const referencePoint = new THREE.Mesh(
-  new THREE.SphereGeometry(0.075, 24, 16),
-  new THREE.MeshBasicMaterial({ color: 0xff6878 })
+// GameJoy's analog stick, modeled flat on the ground plane.
+const joystickPosition = new THREE.Vector3(0, 0, 2.15);
+const joystickBaseRadius = 1.32;
+const joystickKnobRadius = 0.49;
+const joystickTravel = joystickBaseRadius - joystickKnobRadius;
+
+const joystickBase = new THREE.Mesh(
+  new THREE.CylinderGeometry(joystickBaseRadius, joystickBaseRadius, 0.1, 64),
+  new THREE.MeshStandardMaterial({
+    color: 0xf0f8ff,
+    transparent: true,
+    opacity: 0.2,
+    roughness: 0.42,
+    metalness: 0.08,
+    depthWrite: false
+  })
 );
-referencePoint.position.set(0, 0.3, 2.15);
-scene.add(referencePoint);
+joystickBase.position.copy(joystickPosition).setY(0.025);
+scene.add(joystickBase);
 
-// A fixed, beveled arrow silhouette: the joystick rotates and scales the
-// whole shape, so it keeps its proportions instead of bending or stretching.
-const arrowPath = new THREE.Shape();
-arrowPath.moveTo(-0.12, 0);
-arrowPath.lineTo(-0.12, 1.9);
-arrowPath.lineTo(-0.58, 1.79);
-arrowPath.lineTo(0, 3.12);
-arrowPath.lineTo(0.58, 1.79);
-arrowPath.lineTo(0.12, 1.9);
-arrowPath.lineTo(0.12, 0);
-arrowPath.closePath();
-
-const arrowGeometry = new THREE.ExtrudeGeometry(arrowPath, {
-  steps: 1,
-  depth: 0.06,
-  bevelEnabled: true,
-  bevelSegments: 3,
-  bevelThickness: 0.025,
-  bevelSize: 0.025,
-  curveSegments: 8
-});
-arrowGeometry.rotateX(-Math.PI / 2);
-arrowGeometry.computeVertexNormals();
-
-const arrow = new THREE.Group();
-arrow.position.set(0, 0.2, 2.15);
-arrow.visible = false;
-scene.add(arrow);
-
-const glowMaterial = new THREE.MeshBasicMaterial({
-  color: 0xff1830,
-  transparent: true,
-  opacity: 0.17,
-  side: THREE.DoubleSide,
-  depthWrite: false
-});
-const arrowMaterial = new THREE.MeshStandardMaterial({
-  color: 0xc90a1c,
-  emissive: 0x650008,
-  emissiveIntensity: 0.8,
-  roughness: 0.26,
-  metalness: 0.22,
-  side: THREE.DoubleSide
-});
-const outlineMaterial = new THREE.LineBasicMaterial({
-  color: 0xff7580,
-  transparent: true,
-  opacity: 0.92,
-  depthWrite: false
-});
-const glowGeometry = arrowGeometry.clone();
-glowGeometry.scale(1.1, 1, 1.1);
-const glowShape = new THREE.Mesh(glowGeometry, glowMaterial);
-glowShape.position.y = -0.018;
-const arrowShape = new THREE.Mesh(arrowGeometry, arrowMaterial);
-const outlinePoints = [
-  [-0.12, 0], [-0.12, 1.9], [-0.58, 1.79], [0, 3.12],
-  [0.58, 1.79], [0.12, 1.9], [0.12, 0]
-].map(([x, forward]) => new THREE.Vector3(x, 0.095, -forward));
-const arrowOutline = new THREE.LineLoop(
-  new THREE.BufferGeometry().setFromPoints(outlinePoints),
-  outlineMaterial
+const joystickRim = new THREE.Mesh(
+  new THREE.TorusGeometry(joystickBaseRadius - 0.035, 0.035, 10, 72),
+  new THREE.MeshBasicMaterial({ color: 0xf4fbff, transparent: true, opacity: 0.82 })
 );
-arrow.add(glowShape, arrowShape, arrowOutline);
+joystickRim.rotation.x = Math.PI / 2;
+joystickRim.position.copy(joystickPosition).setY(0.085);
+scene.add(joystickRim);
+
+const joystickKnob = new THREE.Group();
+joystickKnob.position.set(0, 0.08, joystickPosition.z);
+scene.add(joystickKnob);
+
+const joystickKnobBody = new THREE.Mesh(
+  new THREE.CylinderGeometry(joystickKnobRadius * 0.92, joystickKnobRadius, 0.18, 48),
+  new THREE.MeshStandardMaterial({
+    color: 0x56bfff,
+    emissive: 0x0871c4,
+    emissiveIntensity: 0.32,
+    transparent: true,
+    opacity: 0.9,
+    roughness: 0.28,
+    metalness: 0.14
+  })
+);
+joystickKnobBody.position.y = 0.075;
+joystickKnob.add(joystickKnobBody);
+
+const joystickKnobRim = new THREE.Mesh(
+  new THREE.TorusGeometry(joystickKnobRadius * 0.9, 0.025, 8, 48),
+  new THREE.MeshBasicMaterial({ color: 0xf3fbff, transparent: true, opacity: 0.9 })
+);
+joystickKnobRim.rotation.x = Math.PI / 2;
+joystickKnobRim.position.y = 0.17;
+joystickKnob.add(joystickKnobRim);
 
 let targetX = 0;
 let targetY = 0;
@@ -203,7 +186,6 @@ let currentY = 0;
 let targetActive = false;
 let lastPacketAt = 0;
 let lastFrameAt = 0;
-let currentAngle = 0;
 
 function acceptInput(data) {
   if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y) ||
@@ -218,10 +200,6 @@ function acceptInput(data) {
   } else {
     setStatus(debug ? 'Overlay conectado · mando centrado' : '');
   }
-}
-
-function shortestAngleDelta(from, to) {
-  return Math.atan2(Math.sin(to - from), Math.cos(to - from));
 }
 
 function resize() {
@@ -248,16 +226,9 @@ function render(now) {
   currentX += (targetX - currentX) * blend;
   currentY += (targetY - currentY) * blend;
   const magnitude = Math.min(1, Math.hypot(currentX, currentY));
-  const moving = targetActive || magnitude > 0.075;
-  if (magnitude > 0.001) {
-    const targetAngle = Math.atan2(-currentX, currentY);
-    currentAngle += shortestAngleDelta(currentAngle, targetAngle) * blend;
-  }
-  arrow.visible = moving;
-  if (moving) {
-    arrow.rotation.y = currentAngle;
-    arrow.scale.setScalar(0.72 + magnitude * 0.28);
-  }
+  const directionScale = magnitude > 1 ? 1 / magnitude : 1;
+  joystickKnob.position.x = currentX * directionScale * joystickTravel;
+  joystickKnob.position.z = joystickPosition.z - currentY * directionScale * joystickTravel;
 
   renderer.render(scene, camera);
   requestAnimationFrame(render);
