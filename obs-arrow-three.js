@@ -216,27 +216,10 @@ const arrowShaftMaterial = new THREE.MeshStandardMaterial({
   metalness: 0.08,
   side: THREE.DoubleSide
 });
-const arrowHeadMaterial = new THREE.MeshStandardMaterial({
-  vertexColors: true,
-  emissive: 0x063b72,
-  emissiveIntensity: 0.55,
-  roughness: 0.24,
-  metalness: 0.12,
-  side: THREE.DoubleSide
-});
-const arrowHeadOutlineMaterial = new THREE.LineBasicMaterial({
-  color: 0x8feaff,
-  transparent: true,
-  opacity: 0.72,
-  depthWrite: false
-});
 const arrowShadow = new THREE.Mesh(new THREE.BufferGeometry(), arrowShadowMaterial);
 const arrowGlow = new THREE.Mesh(new THREE.BufferGeometry(), arrowGlowMaterial);
 const arrowShaft = new THREE.Mesh(new THREE.BufferGeometry(), arrowShaftMaterial);
-const arrowHeadShadow = new THREE.Mesh(new THREE.BufferGeometry(), arrowShadowMaterial);
-const arrowHead = new THREE.Mesh(new THREE.BufferGeometry(), arrowHeadMaterial);
-const arrowHeadOutline = new THREE.LineLoop(new THREE.BufferGeometry(), arrowHeadOutlineMaterial);
-arrowTrail.add(arrowShadow, arrowGlow, arrowShaft, arrowHeadShadow, arrowHead, arrowHeadOutline);
+arrowTrail.add(arrowShadow, arrowGlow, arrowShaft);
 
 const arrowOriginHalo = new THREE.Mesh(
   new THREE.CircleGeometry(0.23, 48),
@@ -313,11 +296,6 @@ const ribbonColors = [
   new THREE.Color(0x67e7ff),
   new THREE.Color(0x2586d4)
 ];
-const headColors = [
-  new THREE.Color(0x72efff),
-  new THREE.Color(0x2588e8),
-  new THREE.Color(0x286ac0)
-];
 
 function makeRibbonGeometry(curve, widthScale, height, offsetZ) {
   const segments = 48;
@@ -331,7 +309,21 @@ function makeRibbonGeometry(curve, widthScale, height, offsetZ) {
     const point = curve.getPointAt(progress);
     const tangent = curve.getTangentAt(progress).setY(0).normalize();
     const side = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
-    const halfWidth = (0.09 + progress * 0.02) * widthScale;
+    const shaftWidth = 0.09 + progress * 0.02;
+    const headNeck = 0.72;
+    const headShoulder = 0.82;
+    let halfWidth;
+    if (progress <= headNeck) {
+      halfWidth = shaftWidth;
+    } else if (progress <= headShoulder) {
+      const t = (progress - headNeck) / (headShoulder - headNeck);
+      const eased = t * t * (3 - 2 * t);
+      halfWidth = shaftWidth + (0.44 - shaftWidth) * eased;
+    } else {
+      const t = (progress - headShoulder) / (1 - headShoulder);
+      halfWidth = 0.44 * (1 - t);
+    }
+    halfWidth *= widthScale;
     const left = point.clone().addScaledVector(side, halfWidth);
     const right = point.clone().addScaledVector(side, -halfWidth);
     left.z += offsetZ;
@@ -354,19 +346,6 @@ function makeRibbonGeometry(curve, widthScale, height, offsetZ) {
   return geometry;
 }
 
-function makeArrowheadGeometry(base, tip, side, halfWidth, height, offsetZ, widthScale = 1) {
-  const left = base.clone().addScaledVector(side, halfWidth * widthScale);
-  const right = base.clone().addScaledVector(side, -halfWidth * widthScale);
-  const vertices = [tip, left, right].map(point => [point.x, height, point.z + offsetZ]).flat();
-  const colors = headColors.flatMap(color => [color.r, color.g, color.b]);
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geometry.setIndex([0, 1, 2]);
-  geometry.computeVertexNormals();
-  return { geometry, left, right };
-}
-
 function replaceGeometry(mesh, geometry) {
   const previous = mesh.geometry;
   mesh.geometry = geometry;
@@ -380,32 +359,21 @@ function updateArrow(x, y, magnitude) {
   const deltaZ = (backward - forward) * travel;
   const reach = 0.62 + magnitude * 0.38;
   const start = new THREE.Vector3(0, 0.22, 0);
-  const end = new THREE.Vector3(x * 2.85 * reach, 0.22, deltaZ);
-  const direction = end.clone().sub(start);
-  const side = new THREE.Vector3(-direction.z, 0, direction.x).normalize();
+  const shaftEnd = new THREE.Vector3(x * 2.85 * reach, 0.22, deltaZ);
+  const direction = shaftEnd.clone().sub(start).setY(0).normalize();
+  const end = shaftEnd.clone().addScaledVector(direction, 0.72);
+  const curveDirection = end.clone().sub(start);
+  const side = new THREE.Vector3(-curveDirection.z, 0, curveDirection.x).normalize();
   const curveAmount = x * (0.16 + magnitude * 0.22);
-  const control1 = start.clone().addScaledVector(direction, 0.3)
+  const control1 = start.clone().addScaledVector(curveDirection, 0.3)
     .addScaledVector(side, curveAmount * 0.38);
-  const control2 = start.clone().addScaledVector(direction, 0.76)
+  const control2 = start.clone().addScaledVector(curveDirection, 0.76)
     .addScaledVector(side, curveAmount);
   const curve = new THREE.CubicBezierCurve3(start, control1, control2, end);
-  // End the shaft on its own tangent, then extend the tip along that tangent.
-  // This keeps the triangular head aligned with the same curve as the body.
-  const headBase = curve.getPointAt(1);
-  const headDirection = curve.getTangentAt(1).setY(0).normalize();
-  const tip = headBase.clone().addScaledVector(headDirection, 0.72);
-  const headSide = new THREE.Vector3(-headDirection.z, 0, headDirection.x).normalize();
-  const headWidth = 0.44 * (0.88 + magnitude * 0.12);
-
+  // The arrowhead is the widening and tapering end of this same curved ribbon.
   replaceGeometry(arrowShadow, makeRibbonGeometry(curve, 1.45, 0.17, 0.04));
   replaceGeometry(arrowGlow, makeRibbonGeometry(curve, 1.95, 0.205, 0));
   replaceGeometry(arrowShaft, makeRibbonGeometry(curve, 1, 0.24, 0));
-
-  replaceGeometry(arrowHeadShadow, makeArrowheadGeometry(headBase, tip, headSide, headWidth, 0.18, 0.045, 1.16).geometry);
-  const head = makeArrowheadGeometry(headBase, tip, headSide, headWidth, 0.255, 0, 1);
-  replaceGeometry(arrowHead, head.geometry);
-  const outlinePoints = [head.left, tip, head.right].map(point => new THREE.Vector3(point.x, 0.265, point.z));
-  replaceGeometry(arrowHeadOutline, new THREE.BufferGeometry().setFromPoints(outlinePoints));
 }
 
 function resize() {
