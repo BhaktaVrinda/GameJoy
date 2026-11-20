@@ -36,7 +36,7 @@
 
       function setStatus(message) {
         status.textContent = message;
-        status.hidden = !debug || !message;
+        status.hidden = !message;
       }
 
       function resize() {
@@ -58,6 +58,35 @@
         targetY = data.y;
         targetActive = data.active === true && Math.hypot(targetX, targetY) > deadZone;
         lastPacketAt = performance.now();
+        if (targetActive) {
+          if (debug) setStatus('Recibiendo movimiento del mando');
+          else status.hidden = true;
+        } else {
+          setStatus(debug ? 'Overlay conectado · esperando el mando' : 'Esperando movimiento del mando');
+        }
+      }
+
+      function drawIdleMarker(width, height, minSide) {
+        const originX = width * 0.5;
+        const originY = height * 0.79;
+        ctx.save();
+        ctx.globalAlpha = 0.48;
+        ctx.strokeStyle = 'rgba(82, 219, 255, .82)';
+        ctx.fillStyle = 'rgba(8, 17, 29, .78)';
+        ctx.lineWidth = Math.max(2, minSide * 0.004);
+        ctx.beginPath();
+        ctx.ellipse(originX, originY + minSide * 0.014, minSide * 0.038, minSide * 0.013,
+          0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(originX, originY, minSide * 0.018, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(originX, originY - minSide * 0.025);
+        ctx.lineTo(originX, originY - minSide * 0.045);
+        ctx.stroke();
+        ctx.restore();
       }
 
       function project(worldX, worldY, originX, originY, scale) {
@@ -132,6 +161,8 @@
         const magnitude = Math.min(1, Math.hypot(currentX, currentY));
         const visible = targetActive || magnitude > deadZone;
         const opacity = visible ? Math.min(1, magnitude * 1.5) : 0;
+
+        if (!visible) drawIdleMarker(width, height, minSide);
 
         if (opacity > 0.01 && magnitude > 0.001) {
           ctx.save();
