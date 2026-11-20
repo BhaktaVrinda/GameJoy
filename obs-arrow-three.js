@@ -70,15 +70,20 @@ tiltRange.addEventListener('input', () => setViewElevation(Number(tiltRange.valu
 document.getElementById('tilt-reset').addEventListener('click', () => {
   setViewElevation(DEFAULT_VIEW_ELEVATION, true);
 });
-document.getElementById('tilt-close').addEventListener('click', () => { tiltPanel.hidden = true; });
+document.getElementById('tilt-close').addEventListener('click', () => {
+  tiltPanel.hidden = true;
+  syncCalibrationScene();
+});
 window.addEventListener('keydown', event => {
   const isEditingControl = event.target instanceof HTMLElement &&
     event.target.closest('input, button, textarea, select');
   if (!isEditingControl && event.key.toLowerCase() === 't') {
     tiltPanel.hidden = !tiltPanel.hidden;
+    syncCalibrationScene();
     event.preventDefault();
   } else if (event.key === 'Escape') {
     tiltPanel.hidden = true;
+    syncCalibrationScene();
   }
 });
 
@@ -100,6 +105,7 @@ const floor = new THREE.Mesh(floorGeometry, new THREE.MeshBasicMaterial({
   depthWrite: false
 }));
 floor.position.set(0, -0.08, -3);
+floor.visible = false;
 scene.add(floor);
 
 const grid = new THREE.GridHelper(24, 24, 0x68e4ff, 0x42b7e9);
@@ -109,7 +115,14 @@ for (const material of Array.isArray(grid.material) ? grid.material : [grid.mate
   material.opacity = 0.22;
   material.depthWrite = false;
 }
+grid.visible = false;
 scene.add(grid);
+
+function syncCalibrationScene() {
+  const showCalibration = !tiltPanel.hidden;
+  floor.visible = showCalibration;
+  grid.visible = showCalibration;
+}
 
 const anchor = new THREE.Group();
 anchor.position.set(0, 0, 2.15);
@@ -153,35 +166,33 @@ arrow.visible = false;
 scene.add(arrow);
 
 const glowMaterial = new THREE.MeshBasicMaterial({
-  color: 0x12aaff,
+  color: 0xff142a,
   transparent: true,
-  opacity: 0.3,
+  opacity: 0.2,
+  side: THREE.DoubleSide,
   depthWrite: false
 });
-const shaftMaterial = new THREE.MeshStandardMaterial({
-  color: 0x58e5ff,
-  emissive: 0x159fff,
-  emissiveIntensity: 1.5,
-  roughness: 0.24,
-  metalness: 0.18
+const arrowMaterial = new THREE.MeshStandardMaterial({
+  color: 0xd90a1c,
+  emissive: 0x76000b,
+  emissiveIntensity: 0.9,
+  roughness: 0.3,
+  metalness: 0.08,
+  side: THREE.DoubleSide
 });
-const glowShaft = new THREE.Mesh(new THREE.BufferGeometry(), glowMaterial);
-const shaft = new THREE.Mesh(new THREE.BufferGeometry(), shaftMaterial);
-const glowHead = new THREE.Mesh(
-  new THREE.ConeGeometry(0.48, 1.08, 8),
-  glowMaterial
-);
-const head = new THREE.Mesh(
-  new THREE.ConeGeometry(0.34, 0.82, 8),
-  new THREE.MeshStandardMaterial({
-    color: 0x8bf5ff,
-    emissive: 0x148fff,
-    emissiveIntensity: 1.7,
-    roughness: 0.2,
-    metalness: 0.12
-  })
-);
-arrow.add(glowShaft, shaft, glowHead, head);
+const outlineMaterial = new THREE.LineBasicMaterial({
+  color: 0xff6470,
+  transparent: true,
+  opacity: 0.9,
+  depthWrite: false
+});
+const glowShape = new THREE.Mesh(new THREE.BufferGeometry(), glowMaterial);
+const arrowShape = new THREE.Mesh(new THREE.BufferGeometry(), arrowMaterial);
+const arrowOutline = new THREE.LineLoop(new THREE.BufferGeometry(), outlineMaterial);
+glowShape.position.y = 0.205;
+arrowShape.position.y = 0.225;
+arrowOutline.position.y = 0.25;
+arrow.add(glowShape, arrowShape, arrowOutline);
 
 let targetX = 0;
 let targetY = 0;
@@ -218,20 +229,67 @@ function updateArrow(x, y, magnitude) {
   const middle1 = new THREE.Vector3(end.x * 0.06, 0.22, start.z + deltaZ * 0.34);
   const middle2 = new THREE.Vector3(end.x * 0.72, 0.22, start.z + deltaZ * 0.79);
   const curve = new THREE.CatmullRomCurve3([start, middle1, middle2, end]);
-  const radiusScale = 0.76 + magnitude * 0.24;
+  const headStart = 0.74;
+  const headShapeScale = 0.88 + magnitude * 0.16;
+  const neck = curve.getPoint(headStart);
+  const headTangent = curve.getTangent(headStart).setY(0).normalize();
+  const headSide = new THREE.Vector3(headTangent.z, 0, -headTangent.x).normalize();
+  const wingCenter = neck.clone().addScaledVector(headTangent, 0.08);
+  const wingWidth = 0.7 * headShapeScale;
+  const wingLeft = wingCenter.clone().addScaledVector(headSide, wingWidth);
+  const wingRight = wingCenter.clone().addScaledVector(headSide, -wingWidth);
+  const tip = curve.getPoint(1);
+  const leftEdge = [];
+  const rightEdge = [];
+  const shaftSteps = 30;
 
-  for (const mesh of [glowShaft, shaft]) {
-    const oldGeometry = mesh.geometry;
-    mesh.geometry = new THREE.TubeGeometry(curve, 48, (mesh === shaft ? 0.083 : 0.19) * radiusScale, 12, false);
-    oldGeometry.dispose();
+  for (let i = 0; i <= shaftSteps; i++) {
+    const t = headStart * i / shaftSteps;
+    const point = curve.getPoint(t);
+    const tangent = curve.getTangent(t).setY(0).normalize();
+    const side = new THREE.Vector3(tangent.z, 0, -tangent.x).normalize();
+    const taper = (0.065 + 0.075 * (t / headStart)) * headShapeScale;
+    leftEdge.push(point.clone().addScaledVector(side, taper));
+    rightEdge.push(point.clone().addScaledVector(side, -taper));
   }
 
-  const tangent = curve.getTangent(1).normalize();
-  const tip = curve.getPoint(1);
-  const up = new THREE.Vector3(0, 1, 0);
-  for (const [mesh, height] of [[glowHead, 1.08], [head, 0.82]]) {
-    mesh.position.copy(tip).addScaledVector(tangent, -height * 0.48);
-    mesh.quaternion.setFromUnitVectors(up, tangent);
+  // A solid, tapered arrow follows the existing curved joystick path.
+  // Its broad chevron head flexes with the same direction and magnitude.
+  const contour = [...leftEdge, wingLeft, tip, wingRight, ...rightEdge.reverse()];
+  const makeShapeGeometry = (widthScale, height) => {
+    const expanded = contour.map((point, index) => {
+      if (index === leftEdge.length + 1) return new THREE.Vector3(point.x, height, point.z);
+      const center = neck;
+      return new THREE.Vector3(
+        center.x + (point.x - center.x) * widthScale,
+        height,
+        center.z + (point.z - center.z) * widthScale
+      );
+    });
+    const outlinePoints = expanded.map(point => new THREE.Vector2(point.x, point.z));
+    const faces = THREE.ShapeUtils.triangulateShape(outlinePoints, []);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(
+      expanded.flatMap(point => [point.x, point.y, point.z]), 3
+    ));
+    geometry.setIndex(faces.flat());
+    geometry.computeVertexNormals();
+    return { geometry, outline: expanded };
+  };
+
+  const glow = makeShapeGeometry(1.16, 0);
+  const body = makeShapeGeometry(1, 0);
+  const outline = makeShapeGeometry(1.015, 0);
+  for (const [mesh, result] of [[glowShape, glow], [arrowShape, body], [arrowOutline, outline]]) {
+    const oldGeometry = mesh.geometry;
+    mesh.geometry = result.geometry;
+    oldGeometry.dispose();
+    if (mesh === arrowOutline) {
+      const points = result.outline.map(point => new THREE.Vector3(point.x, 0, point.z));
+      const outlineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+      mesh.geometry.dispose();
+      mesh.geometry = outlineGeometry;
+    }
   }
 }
 
