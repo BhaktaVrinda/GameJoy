@@ -124,10 +124,10 @@ const buttonColumn = new THREE.Group();
 scene.add(buttonColumn);
 
 const buttonDefinitions = [
-  { id: 'Y', symbol: 'triangle', color: 0x47b347, y: 1.68 },
-  { id: 'B', symbol: 'circle', color: 0xe41e20, y: 0.56 },
-  { id: 'A', symbol: 'cross', color: 0x4470ad, y: -0.56 },
-  { id: 'X', symbol: 'square', color: 0xcf7db2, y: -1.68 }
+  { id: 'Y', symbol: 'triangle', color: 0x47b347, x: 0, y: 0.75 },
+  { id: 'B', symbol: 'circle', color: 0xe41e20, x: 0.75, y: 0 },
+  { id: 'A', symbol: 'cross', color: 0x4470ad, x: 0, y: -0.75 },
+  { id: 'X', symbol: 'square', color: 0xcf7db2, x: -0.75, y: 0 }
 ];
 const buttonStates = new Map();
 
@@ -181,7 +181,7 @@ function addSymbol(root, type, materials) {
 
 for (const definition of buttonDefinitions) {
   const root = new THREE.Group();
-  root.position.y = definition.y;
+  root.position.set(definition.x, definition.y, 0);
   root.visible = false;
   buttonColumn.add(root);
 
