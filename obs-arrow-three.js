@@ -233,17 +233,7 @@ const arrowOriginRing = new THREE.Mesh(
 );
 arrowOriginRing.rotation.x = Math.PI / 2;
 arrowOriginRing.position.y = 0.245;
-const arrowOriginDot = new THREE.Mesh(
-  new THREE.SphereGeometry(0.092, 24, 16),
-  new THREE.MeshStandardMaterial({ color: 0x43d3ff, emissive: 0x0799ce, emissiveIntensity: 0.75, roughness: 0.22, metalness: 0.08 })
-);
-arrowOriginDot.position.y = 0.29;
-const arrowOriginCore = new THREE.Mesh(
-  new THREE.SphereGeometry(0.038, 16, 12),
-  new THREE.MeshBasicMaterial({ color: 0xeaffff })
-);
-arrowOriginCore.position.y = 0.365;
-arrowModel.add(arrowOriginHalo, arrowOriginRing, arrowOriginDot, arrowOriginCore);
+arrowModel.add(arrowOriginHalo, arrowOriginRing);
 
 let targetX = 0;
 let targetY = 0;
