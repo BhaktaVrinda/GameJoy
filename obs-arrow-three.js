@@ -13,6 +13,9 @@ const viewPreferenceKey = `gamejoy.obs.arrow.view.${token || 'default'}`;
 const tiltPanel = document.getElementById('tilt-panel');
 const tiltRange = document.getElementById('tilt-range');
 const tiltValue = document.getElementById('tilt-value');
+const modelToggle = document.getElementById('model-toggle');
+const modelValue = document.getElementById('model-value');
+const modelPreferenceKey = `gamejoy.obs.arrow.model.${token || 'default'}`;
 
 function setStatus(message) {
   status.textContent = message;
@@ -129,6 +132,8 @@ const joystickPosition = new THREE.Vector3(0, 0, 2.15);
 const joystickBaseRadius = 1.32;
 const joystickKnobRadius = 0.49;
 const joystickTravel = joystickBaseRadius - joystickKnobRadius;
+const joystickModel = new THREE.Group();
+scene.add(joystickModel);
 
 const joystickBase = new THREE.Mesh(
   new THREE.CylinderGeometry(joystickBaseRadius, joystickBaseRadius, 0.1, 64),
@@ -142,7 +147,7 @@ const joystickBase = new THREE.Mesh(
   })
 );
 joystickBase.position.copy(joystickPosition).setY(0.025);
-scene.add(joystickBase);
+joystickModel.add(joystickBase);
 
 const joystickRim = new THREE.Mesh(
   new THREE.TorusGeometry(joystickBaseRadius - 0.035, 0.035, 10, 72),
@@ -150,11 +155,11 @@ const joystickRim = new THREE.Mesh(
 );
 joystickRim.rotation.x = Math.PI / 2;
 joystickRim.position.copy(joystickPosition).setY(0.085);
-scene.add(joystickRim);
+joystickModel.add(joystickRim);
 
 const joystickKnob = new THREE.Group();
 joystickKnob.position.set(0, 0.08, joystickPosition.z);
-scene.add(joystickKnob);
+joystickModel.add(joystickKnob);
 
 const joystickKnobBody = new THREE.Mesh(
   new THREE.CylinderGeometry(joystickKnobRadius * 0.92, joystickKnobRadius, 0.18, 48),
@@ -179,6 +184,43 @@ joystickKnobRim.rotation.x = Math.PI / 2;
 joystickKnobRim.position.y = 0.17;
 joystickKnob.add(joystickKnobRim);
 
+// Alternate model: the original curved 3D arrow, which bends with the input.
+const arrowModel = new THREE.Group();
+arrowModel.position.z = joystickPosition.z;
+arrowModel.visible = false;
+scene.add(arrowModel);
+
+const arrowGlowMaterial = new THREE.MeshBasicMaterial({
+  color: 0x12baff,
+  transparent: true,
+  opacity: 0.17,
+  side: THREE.DoubleSide,
+  depthWrite: false
+});
+const arrowShaftMaterial = new THREE.MeshStandardMaterial({
+  color: 0x58e5ff,
+  emissive: 0x159fff,
+  emissiveIntensity: 1.45,
+  roughness: 0.24,
+  metalness: 0.16
+});
+const arrowHeadMaterial = new THREE.MeshStandardMaterial({
+  color: 0x9af5ff,
+  emissive: 0x168fff,
+  emissiveIntensity: 1.65,
+  roughness: 0.2,
+  metalness: 0.1
+});
+const arrowGlowShaft = new THREE.Mesh(new THREE.BufferGeometry(), arrowGlowMaterial);
+const arrowShaft = new THREE.Mesh(new THREE.BufferGeometry(), arrowShaftMaterial);
+const arrowGlowHead = new THREE.Mesh(
+  new THREE.ConeGeometry(0.43, 0.98, 8), arrowGlowMaterial
+);
+const arrowHead = new THREE.Mesh(
+  new THREE.ConeGeometry(0.29, 0.72, 8), arrowHeadMaterial
+);
+arrowModel.add(arrowGlowShaft, arrowShaft, arrowGlowHead, arrowHead);
+
 let targetX = 0;
 let targetY = 0;
 let currentX = 0;
@@ -186,6 +228,29 @@ let currentY = 0;
 let targetActive = false;
 let lastPacketAt = 0;
 let lastFrameAt = 0;
+let arrowActive = false;
+let lastArrowKey = '';
+let currentModel = 'joystick';
+try {
+  if (localStorage.getItem(modelPreferenceKey) === 'arrow') currentModel = 'arrow';
+} catch (_) {}
+
+function syncModelSelection(persist = false) {
+  const showJoystick = currentModel === 'joystick';
+  joystickModel.visible = showJoystick;
+  arrowModel.visible = !showJoystick && arrowActive;
+  modelValue.textContent = showJoystick ? 'Joystick' : 'Flecha';
+  modelToggle.textContent = showJoystick ? 'Cambiar a flecha' : 'Cambiar a joystick';
+  if (persist) {
+    try { localStorage.setItem(modelPreferenceKey, currentModel); } catch (_) {}
+  }
+}
+
+modelToggle.addEventListener('click', () => {
+  currentModel = currentModel === 'joystick' ? 'arrow' : 'joystick';
+  syncModelSelection(true);
+});
+syncModelSelection();
 
 function acceptInput(data) {
   if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y) ||
@@ -199,6 +264,34 @@ function acceptInput(data) {
     else status.hidden = true;
   } else {
     setStatus(debug ? 'Overlay conectado · mando centrado' : '');
+  }
+}
+
+function updateArrow(x, y, magnitude) {
+  const forward = Math.max(0, y);
+  const backward = Math.max(0, -y);
+  const travel = 0.8 + forward * 4.2 + backward * 2.7 + Math.abs(x) * 1.65;
+  const deltaZ = (backward - forward) * travel;
+  const reach = 0.62 + magnitude * 0.38;
+  const start = new THREE.Vector3(0, 0.22, 0);
+  const end = new THREE.Vector3(x * 2.85 * reach, 0.22, deltaZ);
+  const curveAmount = x * (0.2 + magnitude * 0.34);
+  const middle1 = new THREE.Vector3(end.x * 0.06, 0.22, deltaZ * 0.3 - curveAmount);
+  const middle2 = new THREE.Vector3(end.x * 0.74, 0.22, deltaZ * 0.76 + curveAmount * 0.34);
+  const curve = new THREE.CatmullRomCurve3([start, middle1, middle2, end], false, 'centripetal', 0.5);
+
+  for (const [mesh, radius] of [[arrowGlowShaft, 0.17], [arrowShaft, 0.074]]) {
+    const oldGeometry = mesh.geometry;
+    mesh.geometry = new THREE.TubeGeometry(curve, 42, radius * (0.9 + magnitude * 0.1), 12, false);
+    oldGeometry.dispose();
+  }
+
+  const tip = curve.getPoint(1);
+  const tangent = curve.getTangent(1).normalize();
+  const axis = new THREE.Vector3(0, 1, 0);
+  for (const [mesh, height] of [[arrowGlowHead, 0.98], [arrowHead, 0.72]]) {
+    mesh.position.copy(tip).addScaledVector(tangent, -height * 0.47);
+    mesh.quaternion.setFromUnitVectors(axis, tangent);
   }
 }
 
@@ -229,6 +322,15 @@ function render(now) {
   const directionScale = magnitude > 1 ? 1 / magnitude : 1;
   joystickKnob.position.x = currentX * directionScale * joystickTravel;
   joystickKnob.position.z = joystickPosition.z - currentY * directionScale * joystickTravel;
+  arrowActive = targetActive || magnitude > 0.075;
+  joystickModel.visible = currentModel === 'joystick';
+  arrowModel.visible = currentModel === 'arrow' && arrowActive;
+
+  const arrowKey = `${Math.round(currentX * 80)}:${Math.round(currentY * 80)}`;
+  if (currentModel === 'arrow' && arrowActive && arrowKey !== lastArrowKey) {
+    updateArrow(currentX, currentY, magnitude);
+    lastArrowKey = arrowKey;
+  }
 
   renderer.render(scene, camera);
   requestAnimationFrame(render);
