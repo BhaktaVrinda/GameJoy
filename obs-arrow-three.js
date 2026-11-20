@@ -361,14 +361,15 @@ function updateArrow(x, y, magnitude) {
   const start = new THREE.Vector3(0, 0.22, 0);
   const shaftEnd = new THREE.Vector3(x * 2.85 * reach, 0.22, deltaZ);
   const direction = shaftEnd.clone().sub(start).setY(0).normalize();
-  const end = shaftEnd.clone().addScaledVector(direction, 0.72);
+  const side = new THREE.Vector3(-direction.z, 0, direction.x).normalize();
+  const curveAmount = x * (0.24 + magnitude * 0.3);
+  const end = shaftEnd.clone().addScaledVector(direction, 0.72)
+    .addScaledVector(side, curveAmount * 0.78);
   const curveDirection = end.clone().sub(start);
-  const side = new THREE.Vector3(-curveDirection.z, 0, curveDirection.x).normalize();
-  const curveAmount = x * (0.16 + magnitude * 0.22);
   const control1 = start.clone().addScaledVector(curveDirection, 0.3)
-    .addScaledVector(side, curveAmount * 0.38);
-  const control2 = start.clone().addScaledVector(curveDirection, 0.76)
-    .addScaledVector(side, curveAmount);
+    .addScaledVector(side, curveAmount * 0.3);
+  const control2 = start.clone().addScaledVector(curveDirection, 0.7)
+    .addScaledVector(side, curveAmount * 0.52);
   const curve = new THREE.CubicBezierCurve3(start, control1, control2, end);
   // The arrowhead is the widening and tapering end of this same curved ribbon.
   replaceGeometry(arrowShadow, makeRibbonGeometry(curve, 1.45, 0.17, 0.04));
