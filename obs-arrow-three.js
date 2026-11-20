@@ -319,7 +319,7 @@ const headColors = [
   new THREE.Color(0x286ac0)
 ];
 
-function makeRibbonGeometry(curve, endT, widthScale, height, offsetZ) {
+function makeRibbonGeometry(curve, widthScale, height, offsetZ) {
   const segments = 48;
   const positions = [];
   const colors = [];
@@ -327,8 +327,9 @@ function makeRibbonGeometry(curve, endT, widthScale, height, offsetZ) {
 
   for (let i = 0; i <= segments; i++) {
     const progress = i / segments;
-    const point = curve.getPoint(endT * progress);
-    const tangent = curve.getTangent(endT * progress).setY(0).normalize();
+    // Sample by distance along the curve so its bend stays evenly proportioned.
+    const point = curve.getPointAt(progress);
+    const tangent = curve.getTangentAt(progress).setY(0).normalize();
     const side = new THREE.Vector3(-tangent.z, 0, tangent.x).normalize();
     const halfWidth = (0.09 + progress * 0.02) * widthScale;
     const left = point.clone().addScaledVector(side, halfWidth);
@@ -388,16 +389,17 @@ function updateArrow(x, y, magnitude) {
   const control2 = start.clone().addScaledVector(direction, 0.76)
     .addScaledVector(side, curveAmount);
   const curve = new THREE.CubicBezierCurve3(start, control1, control2, end);
-  const headBaseT = 0.78;
-  const headBase = curve.getPoint(headBaseT);
-  const tip = curve.getPoint(1);
-  const headDirection = tip.clone().sub(headBase).setY(0).normalize();
+  // End the shaft on its own tangent, then extend the tip along that tangent.
+  // This keeps the triangular head aligned with the same curve as the body.
+  const headBase = curve.getPointAt(1);
+  const headDirection = curve.getTangentAt(1).setY(0).normalize();
+  const tip = headBase.clone().addScaledVector(headDirection, 0.72);
   const headSide = new THREE.Vector3(-headDirection.z, 0, headDirection.x).normalize();
   const headWidth = 0.44 * (0.88 + magnitude * 0.12);
 
-  replaceGeometry(arrowShadow, makeRibbonGeometry(curve, headBaseT, 1.45, 0.17, 0.04));
-  replaceGeometry(arrowGlow, makeRibbonGeometry(curve, headBaseT, 1.95, 0.205, 0));
-  replaceGeometry(arrowShaft, makeRibbonGeometry(curve, headBaseT, 1, 0.24, 0));
+  replaceGeometry(arrowShadow, makeRibbonGeometry(curve, 1.45, 0.17, 0.04));
+  replaceGeometry(arrowGlow, makeRibbonGeometry(curve, 1.95, 0.205, 0));
+  replaceGeometry(arrowShaft, makeRibbonGeometry(curve, 1, 0.24, 0));
 
   replaceGeometry(arrowHeadShadow, makeArrowheadGeometry(headBase, tip, headSide, headWidth, 0.18, 0.045, 1.16).geometry);
   const head = makeArrowheadGeometry(headBase, tip, headSide, headWidth, 0.255, 0, 1);
