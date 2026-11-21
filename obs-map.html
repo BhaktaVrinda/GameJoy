@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="strict-origin">
   <title>Minimapa de GameJoy</title>
-  <link rel="stylesheet" href="/obs/leaflet.css">
   <style>
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
     body { display: grid; place-items: center; }
@@ -16,9 +15,8 @@
                #66c0f4 270deg, #59e1ff 360deg) border-box;
            color: #38434e; font: 500 15px system-ui, sans-serif; }
     #maps, #status, #indicator-wrap { position: absolute; inset: 4px; overflow: hidden; border-radius: 50%; }
-    #maps { z-index: 0; background: #e7edf2; }
-    #maps .leaflet-container { width: 100%; height: 100%; background: #e7edf2; }
-    #maps .leaflet-control-attribution { font-size: 9px; }
+    #maps { z-index: 0; background: #f6f8fa; }
+    #maps iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
     #status { display: grid; place-content: center; padding: 24px; box-sizing: border-box;
               z-index: 10; background: #f6f8fa; text-align: center; }
     #indicator-wrap { z-index: 20; pointer-events: none; }
@@ -48,32 +46,22 @@
       </svg>
     </div>
   </main>
-  <script src="/obs/leaflet.js"></script>
   <script>
     const maps = document.getElementById('maps');
     const status = document.getElementById('status');
     const directionBeam = document.getElementById('direction-beam');
     const token = location.hash.slice(1);
-    const zoom = 19;
-    const mapOptions = {
-      zoomControl: false,
-      attributionControl: true,
-      dragging: false,
-      scrollWheelZoom: false,
-      doubleClickZoom: false,
-      touchZoom: false,
-      keyboard: false,
-      boxZoom: false,
-      zoomAnimation: false,
-      fadeAnimation: false,
-      markerZoomAnimation: false
-    };
+    const zoom = 21;
+    const recenterDistanceMeters = 14;
+    const minMapReloadIntervalMs = 5000;
     let center = null;
-    let map = null;
-    let tiles = null;
-    let tilesLoaded = false;
+    let current = null;
+    let loading = null;
+    let loadTimeout = null;
+    let retryTimer = null;
+    let queuedPoint = null;
+    let lastMapRequestAt = 0;
     let hasPosition = false;
-    let tileLoadTimeout = null;
     let latestHeading = null;
     let displayedHeading = null;
     let headingAnimationFrame = null;
@@ -87,6 +75,16 @@
       status.textContent = message;
       status.hidden = false;
       directionBeam.style.display = 'none';
+      if (loading) {
+        loading.onload = null;
+        loading.onerror = null;
+        loading.remove();
+        loading = null;
+      }
+      clearTimeout(loadTimeout);
+      clearTimeout(retryTimer);
+      retryTimer = null;
+      queuedPoint = null;
       if (headingAnimationFrame !== null) cancelAnimationFrame(headingAnimationFrame);
       headingAnimationFrame = null;
       displayedHeading = null;
@@ -126,51 +124,106 @@
       headingAnimationFrame = requestAnimationFrame(animateHeading);
     }
 
+    function distanceMeters(a, b) {
+      const north = (b.latitude - a.latitude) * 111320;
+      const east = (b.longitude - a.longitude) * 111320 * Math.cos(b.latitude * Math.PI / 180);
+      return Math.hypot(north, east);
+    }
+
+    function scheduleMapUpdate(delay) {
+      if (retryTimer !== null) return;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        const point = queuedPoint;
+        queuedPoint = null;
+        if (point && hasPosition) showPosition(point);
+      }, Math.max(0, delay));
+    }
+
+    function requestGoogleMap(point) {
+      const url = new URL('https://maps.google.com/maps');
+      url.search = new URLSearchParams({
+        ll: point.latitude + ',' + point.longitude,
+        z: zoom,
+        t: 'm',
+        hl: 'es',
+        output: 'embed'
+      });
+      const frame = document.createElement('iframe');
+      frame.title = 'Ubicación en Google Maps';
+      frame.referrerPolicy = 'strict-origin';
+      frame.style.visibility = 'hidden';
+      frame._gamejoyPoint = point;
+      loading = frame;
+      lastMapRequestAt = Date.now();
+      frame.onload = () => {
+        if (loading !== frame) return;
+        clearTimeout(loadTimeout);
+        frame.style.visibility = 'visible';
+        current?.remove();
+        current = frame;
+        center = frame._gamejoyPoint;
+        loading = null;
+        status.hidden = true;
+        showHeading();
+        if (queuedPoint && distanceMeters(center, queuedPoint) >= recenterDistanceMeters) {
+          scheduleMapUpdate(minMapReloadIntervalMs - (Date.now() - lastMapRequestAt));
+        } else {
+          queuedPoint = null;
+        }
+      };
+      frame.onerror = () => {
+        if (loading !== frame) return;
+        clearTimeout(loadTimeout);
+        loading = null;
+        frame.remove();
+        if (!current) {
+          status.textContent = 'No se pudo cargar Google Maps';
+          status.hidden = false;
+        }
+      };
+      loadTimeout = setTimeout(() => {
+        if (loading !== frame) return;
+        loading = null;
+        frame.onload = null;
+        frame.onerror = null;
+        frame.remove();
+        if (!current) {
+          status.textContent = 'Google Maps está tardando en responder';
+          status.hidden = false;
+        }
+      }, 12000);
+      frame.src = url.href;
+      maps.appendChild(frame);
+      if (!current) {
+        status.textContent = 'Cargando Google Maps…';
+        status.hidden = false;
+      }
+    }
+
     function showPosition(point) {
       latestHeading = point.heading;
       hasPosition = true;
       showHeading();
-      if (center) {
-        const north = (point.latitude - center.latitude) * 111320;
-        const east = (point.longitude - center.longitude) * 111320 * Math.cos(point.latitude * Math.PI / 180);
-        if (Math.hypot(north, east) < 2) {
-          if (tilesLoaded) status.hidden = true;
-          return;
-        }
+      if (loading) {
+        queuedPoint = point;
+        return;
       }
-      center = point;
-
-      if (!map) {
-        map = L.map(maps, mapOptions).setView([point.latitude, point.longitude], zoom);
-        tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: zoom,
-          updateWhenIdle: true,
-          keepBuffer: 2,
-          attribution: '&copy; OpenStreetMap contributors'
-        });
-        tiles.on('load', () => {
-          tilesLoaded = true;
-          clearTimeout(tileLoadTimeout);
-          if (hasPosition) status.hidden = true;
-        });
-        tiles.addTo(map);
-        tileLoadTimeout = setTimeout(() => {
-          if (hasPosition && !tilesLoaded) {
-            status.textContent = 'No se pudieron cargar los mapas';
-            status.hidden = false;
-          }
-        }, 10000);
-        requestAnimationFrame(() => map?.invalidateSize());
-      } else {
-        map.panTo([point.latitude, point.longitude], { animate: true, duration: 0.35 });
-      }
-
-      if (!tilesLoaded) {
-        status.textContent = 'Cargando mapa…';
-        status.hidden = false;
-      } else {
+      if (current && center && distanceMeters(center, point) < recenterDistanceMeters) {
         status.hidden = true;
+        return;
       }
+      const remaining = minMapReloadIntervalMs - (Date.now() - lastMapRequestAt);
+      if (lastMapRequestAt && remaining > 0) {
+        queuedPoint = point;
+        if (!current) {
+          status.textContent = 'Cargando Google Maps…';
+          status.hidden = false;
+        }
+        scheduleMapUpdate(remaining);
+        return;
+      }
+      requestGoogleMap(point);
     }
 
     async function update() {
