@@ -103,8 +103,9 @@ module.exports = function attachGameJoySessions(io, app) {
     const validNumber = (v, min, max) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
     const label = (v, fallback) => typeof v === 'string' ? v.replace(/[\x00-\x1f]/g, '').trim().slice(0, 80) || fallback : fallback;
     const avatarUrl = v => typeof v === 'string' && v.length <= 2048 && /^https:\/\//i.test(v) ? v : '';
+    const accountUserId = v => typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v) ? v : '';
     const send = (id, event, data) => io.to(id).emit(`gamejoy:${event}`, data);
-    const profile = p => ({ id: p.id, name: p.name, channel: p.channel, avatar: p.avatar, busy: !!p.peer,
+    const profile = p => ({ id: p.id, userId: p.userId, name: p.name, channel: p.channel, avatar: p.avatar, busy: !!p.peer,
         vdoAvailable: typeof p.vdoStreamId === 'string', sharingLocation: p.sharing === true,
         vdoOrientation: p.vdoOrientation ?? null });
     const peerProfile = p => ({ ...profile(p), vdoStreamId: p.vdoStreamId });
@@ -159,7 +160,7 @@ module.exports = function attachGameJoySessions(io, app) {
             if (!data || !['player', 'controller'].includes(data.role)) return;
             const old = players.get(socket.id);
             if (old) { unpublishMap(old); unpublishObsVdoLink(old); unpair(old); }
-            const p = { id: socket.id, role: data.role, name: label(data.name, 'Jugador'),
+            const p = { id: socket.id, role: data.role, userId: accountUserId(data.userId), name: label(data.name, 'Jugador'),
                 channel: label(data.channel, ''), avatar: avatarUrl(data.avatar), sharing: false, peer: null, lastFrame: null, vdoStreamId: null,
                 mapToken: null, obsVdoToken: null, obsInputState: null, obsButtons: new Set(), lastInputAt: 0, lastLocationAt: 0, lastSelectAt: 0 };
             players.set(socket.id, p);
