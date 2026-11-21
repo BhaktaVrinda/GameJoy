@@ -10,12 +10,24 @@ const DEFAULT_VIEW_ELEVATION = 12;
 const MIN_VIEW_ELEVATION = 5;
 const MAX_VIEW_ELEVATION = 25;
 const viewPreferenceKey = `gamejoy.obs.arrow.view.${token || 'default'}`;
+const arrowPositionPreferenceKey = `gamejoy.obs.arrow.vertical.${token || 'default'}`;
 const tiltPanel = document.getElementById('tilt-panel');
 const tiltRange = document.getElementById('tilt-range');
 const tiltValue = document.getElementById('tilt-value');
+const arrowYRange = document.getElementById('arrow-y-range');
+const arrowYValue = document.getElementById('arrow-y-value');
 const modelToggle = document.getElementById('model-toggle');
 const modelValue = document.getElementById('model-value');
 const modelPreferenceKey = `gamejoy.obs.arrow.model.v2.${token || 'default'}`;
+let arrowVerticalOffset = 0;
+let arrowModel = null;
+
+try {
+  const savedOffset = Number(localStorage.getItem(arrowPositionPreferenceKey));
+  if (Number.isFinite(savedOffset)) arrowVerticalOffset = THREE.MathUtils.clamp(savedOffset, -100, 100);
+} catch (_) {}
+arrowYRange.value = String(arrowVerticalOffset);
+arrowYValue.value = `${arrowVerticalOffset}%`;
 
 function setStatus(message) {
   status.textContent = message;
@@ -44,6 +56,17 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(39, window.innerWidth / window.innerHeight, 0.1, 80);
 const cameraTarget = new THREE.Vector3(0, 0, -1.2);
 const cameraOrbitDistance = 16;
+function updateArrowVerticalPosition() {
+  if (!arrowModel) return;
+  const anchor = new THREE.Vector3(0, 0, arrowModel.position.z);
+  const direction = new THREE.Vector3();
+  camera.getWorldDirection(direction);
+  const depth = Math.max(1, camera.position.clone().sub(anchor).dot(direction));
+  const verticalProjection = Math.max(0.1, Math.sqrt(1 - direction.y * direction.y));
+  const screenOffset = (arrowVerticalOffset / 100) * 0.55;
+  arrowModel.position.y = screenOffset * depth * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / verticalProjection;
+}
+
 function setViewElevation(degrees, persist = false) {
   const elevation = THREE.MathUtils.clamp(degrees, MIN_VIEW_ELEVATION, MAX_VIEW_ELEVATION);
   const radians = THREE.MathUtils.degToRad(elevation);
@@ -53,6 +76,7 @@ function setViewElevation(degrees, persist = false) {
     cameraTarget.z + Math.cos(radians) * cameraOrbitDistance
   );
   camera.lookAt(cameraTarget);
+  updateArrowVerticalPosition();
   tiltRange.value = String(Math.round(elevation));
   tiltValue.value = `${Math.round(elevation)}°`;
   if (persist) {
@@ -72,6 +96,7 @@ setViewElevation(initialViewElevation);
 tiltRange.addEventListener('input', () => setViewElevation(Number(tiltRange.value), true));
 document.getElementById('tilt-reset').addEventListener('click', () => {
   setViewElevation(DEFAULT_VIEW_ELEVATION, true);
+  setArrowVerticalOffset(0, true);
 });
 document.getElementById('tilt-close').addEventListener('click', () => {
   tiltPanel.hidden = true;
@@ -185,10 +210,21 @@ joystickKnobRim.position.y = 0.17;
 joystickKnob.add(joystickKnobRim);
 
 // Screenshot-style arrow: a curved blue ribbon, triangular tip, and blue origin.
-const arrowModel = new THREE.Group();
+arrowModel = new THREE.Group();
 arrowModel.position.z = joystickPosition.z;
 arrowModel.visible = true;
 scene.add(arrowModel);
+function setArrowVerticalOffset(value, persist = false) {
+  arrowVerticalOffset = THREE.MathUtils.clamp(Number(value) || 0, -100, 100);
+  arrowYRange.value = String(Math.round(arrowVerticalOffset));
+  arrowYValue.value = `${Math.round(arrowVerticalOffset)}%`;
+  updateArrowVerticalPosition();
+  if (persist) {
+    try { localStorage.setItem(arrowPositionPreferenceKey, String(arrowVerticalOffset)); } catch (_) {}
+  }
+}
+setArrowVerticalOffset(arrowVerticalOffset);
+arrowYRange.addEventListener('input', () => setArrowVerticalOffset(Number(arrowYRange.value), true));
 
 const arrowTrail = new THREE.Group();
 arrowTrail.visible = false;
