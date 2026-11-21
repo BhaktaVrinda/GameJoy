@@ -10,24 +10,37 @@ const DEFAULT_VIEW_ELEVATION = 12;
 const MIN_VIEW_ELEVATION = 5;
 const MAX_VIEW_ELEVATION = 25;
 const viewPreferenceKey = `gamejoy.obs.arrow.view.${token || 'default'}`;
-const arrowPositionPreferenceKey = `gamejoy.obs.arrow.vertical.${token || 'default'}`;
+const arrowPositionPreferenceKey = `gamejoy.obs.arrow.position.${token || 'default'}`;
+const oldArrowVerticalPreferenceKey = `gamejoy.obs.arrow.vertical.${token || 'default'}`;
 const tiltPanel = document.getElementById('tilt-panel');
 const tiltRange = document.getElementById('tilt-range');
 const tiltValue = document.getElementById('tilt-value');
+const arrowXRange = document.getElementById('arrow-x-range');
+const arrowXValue = document.getElementById('arrow-x-value');
 const arrowYRange = document.getElementById('arrow-y-range');
 const arrowYValue = document.getElementById('arrow-y-value');
 const modelToggle = document.getElementById('model-toggle');
 const modelValue = document.getElementById('model-value');
 const modelPreferenceKey = `gamejoy.obs.arrow.model.v2.${token || 'default'}`;
-let arrowVerticalOffset = 0;
+const arrowPosition = { x: 0, y: 0 };
 let arrowModel = null;
 
 try {
-  const savedOffset = Number(localStorage.getItem(arrowPositionPreferenceKey));
-  if (Number.isFinite(savedOffset)) arrowVerticalOffset = THREE.MathUtils.clamp(savedOffset, -100, 100);
+  const savedPosition = JSON.parse(localStorage.getItem(arrowPositionPreferenceKey) || 'null');
+  if (savedPosition && typeof savedPosition === 'object') {
+    if (Number.isFinite(savedPosition.x)) arrowPosition.x = THREE.MathUtils.clamp(savedPosition.x, -100, 100);
+    if (Number.isFinite(savedPosition.y)) arrowPosition.y = THREE.MathUtils.clamp(savedPosition.y, -100, 100);
+  } else {
+    const oldVerticalOffset = Number(localStorage.getItem(oldArrowVerticalPreferenceKey));
+    if (Number.isFinite(oldVerticalOffset)) {
+      arrowPosition.y = THREE.MathUtils.clamp(oldVerticalOffset * (0.55 / 0.9), -100, 100);
+    }
+  }
 } catch (_) {}
-arrowYRange.value = String(arrowVerticalOffset);
-arrowYValue.value = `${arrowVerticalOffset}%`;
+arrowXRange.value = String(arrowPosition.x);
+arrowXValue.value = `${arrowPosition.x}%`;
+arrowYRange.value = String(arrowPosition.y);
+arrowYValue.value = `${arrowPosition.y}%`;
 
 function setStatus(message) {
   status.textContent = message;
@@ -56,15 +69,14 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(39, window.innerWidth / window.innerHeight, 0.1, 80);
 const cameraTarget = new THREE.Vector3(0, 0, -1.2);
 const cameraOrbitDistance = 16;
-function updateArrowVerticalPosition() {
+function positionArrowModel() {
   if (!arrowModel) return;
-  const anchor = new THREE.Vector3(0, 0, arrowModel.position.z);
-  const direction = new THREE.Vector3();
-  camera.getWorldDirection(direction);
-  const depth = Math.max(1, camera.position.clone().sub(anchor).dot(direction));
-  const verticalProjection = Math.max(0.1, Math.sqrt(1 - direction.y * direction.y));
-  const screenOffset = (arrowVerticalOffset / 100) * 0.55;
-  arrowModel.position.y = screenOffset * depth * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / verticalProjection;
+  camera.updateMatrixWorld(true);
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(arrowPosition.x / 100 * 0.9, arrowPosition.y / 100 * 0.9), camera);
+  const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -arrowModel.position.z);
+  const position = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+  if (position) arrowModel.position.set(position.x, position.y, arrowModel.position.z);
 }
 
 function setViewElevation(degrees, persist = false) {
@@ -76,7 +88,7 @@ function setViewElevation(degrees, persist = false) {
     cameraTarget.z + Math.cos(radians) * cameraOrbitDistance
   );
   camera.lookAt(cameraTarget);
-  updateArrowVerticalPosition();
+  positionArrowModel();
   tiltRange.value = String(Math.round(elevation));
   tiltValue.value = `${Math.round(elevation)}°`;
   if (persist) {
@@ -96,7 +108,7 @@ setViewElevation(initialViewElevation);
 tiltRange.addEventListener('input', () => setViewElevation(Number(tiltRange.value), true));
 document.getElementById('tilt-reset').addEventListener('click', () => {
   setViewElevation(DEFAULT_VIEW_ELEVATION, true);
-  setArrowVerticalOffset(0, true);
+  setArrowPosition(0, 0, true);
 });
 document.getElementById('tilt-close').addEventListener('click', () => {
   tiltPanel.hidden = true;
@@ -214,17 +226,21 @@ arrowModel = new THREE.Group();
 arrowModel.position.z = joystickPosition.z;
 arrowModel.visible = true;
 scene.add(arrowModel);
-function setArrowVerticalOffset(value, persist = false) {
-  arrowVerticalOffset = THREE.MathUtils.clamp(Number(value) || 0, -100, 100);
-  arrowYRange.value = String(Math.round(arrowVerticalOffset));
-  arrowYValue.value = `${Math.round(arrowVerticalOffset)}%`;
-  updateArrowVerticalPosition();
+function setArrowPosition(x, y, persist = false) {
+  arrowPosition.x = THREE.MathUtils.clamp(Number(x) || 0, -100, 100);
+  arrowPosition.y = THREE.MathUtils.clamp(Number(y) || 0, -100, 100);
+  arrowXRange.value = String(Math.round(arrowPosition.x));
+  arrowXValue.value = `${Math.round(arrowPosition.x)}%`;
+  arrowYRange.value = String(Math.round(arrowPosition.y));
+  arrowYValue.value = `${Math.round(arrowPosition.y)}%`;
+  positionArrowModel();
   if (persist) {
-    try { localStorage.setItem(arrowPositionPreferenceKey, String(arrowVerticalOffset)); } catch (_) {}
+    try { localStorage.setItem(arrowPositionPreferenceKey, JSON.stringify(arrowPosition)); } catch (_) {}
   }
 }
-setArrowVerticalOffset(arrowVerticalOffset);
-arrowYRange.addEventListener('input', () => setArrowVerticalOffset(Number(arrowYRange.value), true));
+setArrowPosition(arrowPosition.x, arrowPosition.y);
+arrowXRange.addEventListener('input', () => setArrowPosition(Number(arrowXRange.value), Number(arrowYRange.value), true));
+arrowYRange.addEventListener('input', () => setArrowPosition(Number(arrowXRange.value), Number(arrowYRange.value), true));
 
 const arrowTrail = new THREE.Group();
 arrowTrail.visible = false;
@@ -410,6 +426,7 @@ function resize() {
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
+  positionArrowModel();
 }
 
 function render(now) {

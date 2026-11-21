@@ -52,10 +52,15 @@
     </label>
     <input id="tilt-range" type="range" min="5" max="25" step="1" value="12">
     <div class="tilt-help">Menor: más a nivel del suelo. Mayor: más desde arriba.</div>
-    <label class="tilt-label" for="arrow-y-range" style="margin-top: 16px">
-      <span>Subir o bajar flecha</span><output id="arrow-y-value">0%</output>
+    <label class="tilt-label" for="arrow-x-range" style="margin-top: 16px">
+      <span>Izquierda o derecha</span><output id="arrow-x-value">0%</output>
+    </label>
+    <input id="arrow-x-range" type="range" min="-100" max="100" step="1" value="0">
+    <label class="tilt-label" for="arrow-y-range" style="margin-top: 12px">
+      <span>Subir o bajar</span><output id="arrow-y-value">0%</output>
     </label>
     <input id="arrow-y-range" type="range" min="-100" max="100" step="1" value="0">
+    <div class="tilt-help">Los extremos llevan el origen de la flecha hasta cerca de cada borde del overlay.</div>
     <label class="tilt-label" for="model-toggle">
       <span>Modelo del overlay</span><output id="model-value">Flecha</output>
     </label>
