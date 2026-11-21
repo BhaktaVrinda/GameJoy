@@ -8,6 +8,7 @@ module.exports = function attachGameJoySessions(io, app) {
     const players = new Map();
     const maps = new Map();
     const obsVdoLinks = new Map();
+    const obsArrowPositions = new Map();
     const obsInputRoom = token => `obs-input:${token}`;
     function publishObsInput(p, x, y) {
         if (!p) return;
@@ -41,6 +42,22 @@ module.exports = function attachGameJoySessions(io, app) {
         const state = p?.obsInputState;
         if (!state || !p.peer || Date.now() - state.receivedAt > 1800) return { x: 0, y: 0, active: false };
         return { x: state.x, y: state.y, active: state.active };
+    }
+    function setObsArrowPosition(socket, data, onlyIfMissing = false) {
+        const token = socket.obsArrowToken;
+        if (!token || socket.obsInputRoom !== obsInputRoom(token)) return;
+        const target = maps.get(token) || obsVdoLinks.get(token);
+        if (!target || target.role !== 'player') return;
+        const saved = obsArrowPositions.get(token);
+        if (onlyIfMissing && saved) {
+            socket.emit('gamejoy:obs-arrow-position', { ...saved, initialized: true });
+            return;
+        }
+        if (typeof data?.x !== 'number' || !Number.isFinite(data.x) || data.x < -100 || data.x > 100 ||
+            typeof data?.y !== 'number' || !Number.isFinite(data.y) || data.y < -100 || data.y > 100) return;
+        const position = { x: Math.round(data.x), y: Math.round(data.y) };
+        obsArrowPositions.set(token, position);
+        io.to(obsInputRoom(token)).emit('gamejoy:obs-arrow-position', { ...position, initialized: true });
     }
     function unpublishMap(p) {
         if (p.mapToken && maps.get(p.mapToken) === p) {
@@ -116,6 +133,7 @@ module.exports = function attachGameJoySessions(io, app) {
             if (socket.obsInputRoom) {
                 socket.leave(socket.obsInputRoom);
                 socket.obsInputRoom = null;
+                socket.obsArrowToken = null;
             }
             const token = typeof data?.token === 'string' ? data.token : '';
             const target = /^[a-f0-9]{64}$/.test(token) ? (maps.get(token) || obsVdoLinks.get(token)) : null;
@@ -126,10 +144,17 @@ module.exports = function attachGameJoySessions(io, app) {
             const room = obsInputRoom(token);
             socket.join(room);
             socket.obsInputRoom = room;
+            socket.obsArrowToken = token;
             socket.emit('gamejoy:obs-ready', {});
             socket.emit('gamejoy:obs-input', obsInputSnapshot(target));
             socket.emit('gamejoy:obs-buttons', { buttons: obsButtonsSnapshot(target) });
+            const arrowPosition = obsArrowPositions.get(token);
+            socket.emit('gamejoy:obs-arrow-position', arrowPosition
+                ? { ...arrowPosition, initialized: true }
+                : { x: 0, y: 0, initialized: false });
         });
+        socket.on('gamejoy:obs-arrow-position-set', data => setObsArrowPosition(socket, data));
+        socket.on('gamejoy:obs-arrow-position-seed', data => setObsArrowPosition(socket, data, true));
         socket.on('gamejoy:register', (data = {}) => {
             if (!data || !['player', 'controller'].includes(data.role)) return;
             const old = players.get(socket.id);

@@ -24,16 +24,29 @@ const modelValue = document.getElementById('model-value');
 const modelPreferenceKey = `gamejoy.obs.arrow.model.v2.${token || 'default'}`;
 const arrowPosition = { x: 0, y: 0 };
 let arrowModel = null;
+let overlaySocket = null;
+let hasCachedArrowPosition = false;
 
 try {
-  const savedPosition = JSON.parse(localStorage.getItem(arrowPositionPreferenceKey) || 'null');
+  const savedPositionText = localStorage.getItem(arrowPositionPreferenceKey);
+  const savedPosition = JSON.parse(savedPositionText || 'null');
   if (savedPosition && typeof savedPosition === 'object') {
-    if (Number.isFinite(savedPosition.x)) arrowPosition.x = THREE.MathUtils.clamp(savedPosition.x, -100, 100);
-    if (Number.isFinite(savedPosition.y)) arrowPosition.y = THREE.MathUtils.clamp(savedPosition.y, -100, 100);
+    if (Number.isFinite(savedPosition.x)) {
+      arrowPosition.x = THREE.MathUtils.clamp(savedPosition.x, -100, 100);
+      hasCachedArrowPosition = true;
+    }
+    if (Number.isFinite(savedPosition.y)) {
+      arrowPosition.y = THREE.MathUtils.clamp(savedPosition.y, -100, 100);
+      hasCachedArrowPosition = true;
+    }
   } else {
-    const oldVerticalOffset = Number(localStorage.getItem(oldArrowVerticalPreferenceKey));
-    if (Number.isFinite(oldVerticalOffset)) {
-      arrowPosition.y = THREE.MathUtils.clamp(oldVerticalOffset * (0.55 / 0.9), -100, 100);
+    const oldOffsetText = localStorage.getItem(oldArrowVerticalPreferenceKey);
+    if (oldOffsetText !== null) {
+      const oldVerticalOffset = Number(oldOffsetText);
+      if (Number.isFinite(oldVerticalOffset)) {
+        arrowPosition.y = THREE.MathUtils.clamp(oldVerticalOffset * (0.55 / 0.9), -100, 100);
+        hasCachedArrowPosition = true;
+      }
     }
   }
 } catch (_) {}
@@ -235,12 +248,19 @@ function setArrowPosition(x, y, persist = false) {
   arrowYValue.value = `${Math.round(arrowPosition.y)}%`;
   positionArrowModel();
   if (persist) {
-    try { localStorage.setItem(arrowPositionPreferenceKey, JSON.stringify(arrowPosition)); } catch (_) {}
+    try {
+      localStorage.setItem(arrowPositionPreferenceKey, JSON.stringify(arrowPosition));
+      hasCachedArrowPosition = true;
+    } catch (_) {}
   }
 }
 setArrowPosition(arrowPosition.x, arrowPosition.y);
-arrowXRange.addEventListener('input', () => setArrowPosition(Number(arrowXRange.value), Number(arrowYRange.value), true));
-arrowYRange.addEventListener('input', () => setArrowPosition(Number(arrowXRange.value), Number(arrowYRange.value), true));
+function publishArrowPosition() {
+  setArrowPosition(Number(arrowXRange.value), Number(arrowYRange.value), true);
+  overlaySocket?.emit('gamejoy:obs-arrow-position-set', { x: arrowPosition.x, y: arrowPosition.y });
+}
+arrowXRange.addEventListener('input', publishArrowPosition);
+arrowYRange.addEventListener('input', publishArrowPosition);
 
 const arrowTrail = new THREE.Group();
 arrowTrail.visible = false;
@@ -471,12 +491,20 @@ if (!/^[a-f0-9]{64}$/.test(token)) {
 } else {
   setStatus('Conectando con GameJoy…');
   const socket = io({ autoConnect: false, reconnection: true });
+  overlaySocket = socket;
   socket.on('connect', () => {
     setStatus('Esperando el mando…');
     socket.emit('gamejoy:obs-subscribe', { token });
   });
   socket.on('gamejoy:obs-ready', () => setStatus(debug ? 'Overlay conectado · mando centrado' : ''));
   socket.on('gamejoy:obs-input', acceptInput);
+  socket.on('gamejoy:obs-arrow-position', data => {
+    if (data?.initialized === false) {
+      socket.emit('gamejoy:obs-arrow-position-seed', hasCachedArrowPosition ? arrowPosition : { x: 0, y: 0 });
+      return;
+    }
+    if (Number.isFinite(data?.x) && Number.isFinite(data?.y)) setArrowPosition(data.x, data.y, true);
+  });
   socket.on('gamejoy:obs-stopped', () => {
     acceptInput({ x: 0, y: 0, active: false });
     setStatus('GameJoy dejó de compartir');
