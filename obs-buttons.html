@@ -27,6 +27,8 @@
     #tilt-panel .tilt-heading { margin-bottom: 18px; font-weight: 700; }
     #tilt-panel .tilt-label { margin-bottom: 8px; color: #b9eaf5; }
     #tilt-panel input[type="range"] { width: 100%; accent-color: #52dbff; }
+    #tilt-panel .layout-control { margin: 0 0 14px; }
+    #tilt-panel .layout-control .tilt-label { margin-bottom: 5px; }
     #tilt-panel .tilt-help { margin-top: 7px; color: #9dbcc8; font-size: 12px; }
     #tilt-panel button {
       border: 1px solid rgba(89, 225, 255, .35); border-radius: 8px;
@@ -40,16 +42,35 @@
 <body>
   <canvas id="buttons" aria-hidden="true"></canvas>
   <div id="status" role="status">Conectando con GameJoy…</div>
-  <section id="tilt-panel" role="dialog" aria-label="Ajustar perspectiva de los botones" hidden>
+  <section id="tilt-panel" role="dialog" aria-label="Ajustar botones" hidden>
     <div class="tilt-heading">
-      <span>Ajustar perspectiva</span>
+      <span>Ajustar rombo</span>
       <button id="tilt-close" type="button" aria-label="Cerrar">×</button>
+    </div>
+    <div class="layout-control">
+      <label class="tilt-label" for="position-x-range">
+        <span>Horizontal</span><output id="position-x-value">0%</output>
+      </label>
+      <input id="position-x-range" type="range" min="-100" max="100" step="1" value="0">
+    </div>
+    <div class="layout-control">
+      <label class="tilt-label" for="position-y-range">
+        <span>Vertical</span><output id="position-y-value">0%</output>
+      </label>
+      <input id="position-y-range" type="range" min="-100" max="100" step="1" value="0">
+    </div>
+    <div class="layout-control">
+      <label class="tilt-label" for="size-range">
+        <span>Tamaño</span><output id="size-value">100%</output>
+      </label>
+      <input id="size-range" type="range" min="50" max="200" step="1" value="100">
     </div>
     <label class="tilt-label" for="tilt-range">
       <span>Ángulo de cámara</span><output id="tilt-value">12°</output>
     </label>
     <input id="tilt-range" type="range" min="5" max="25" step="1" value="12">
-    <div class="tilt-help">Pulsa T para mostrar u ocultar esta cuadrícula de ajuste.</div>
+    <div class="tilt-help">Los cambios se guardan para este enlace OBS. En edición se muestran los cuatro botones.</div>
+    <button id="layout-reset" type="button">Restablecer posición y tamaño</button>
     <button id="tilt-reset" type="button">Restablecer vista</button>
   </section>
   <script src="/socket.io/socket.io.js"></script>

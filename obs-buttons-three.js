@@ -9,9 +9,34 @@ const MIN_VIEW_ELEVATION = 5;
 const MAX_VIEW_ELEVATION = 25;
 const cameraOrbitDistance = 16;
 const viewPreferenceKey = `gamejoy.obs.buttons.view.${token || 'default'}`;
+const layoutPreferenceKey = `gamejoy.obs.buttons.layout.${token || 'default'}`;
 const tiltPanel = document.getElementById('tilt-panel');
 const tiltRange = document.getElementById('tilt-range');
 const tiltValue = document.getElementById('tilt-value');
+const positionXRange = document.getElementById('position-x-range');
+const positionXValue = document.getElementById('position-x-value');
+const positionYRange = document.getElementById('position-y-range');
+const positionYValue = document.getElementById('position-y-value');
+const sizeRange = document.getElementById('size-range');
+const sizeValue = document.getElementById('size-value');
+const DEFAULT_LAYOUT = { x: 0, y: 0, size: 100 };
+const layout = { ...DEFAULT_LAYOUT };
+
+try {
+  const savedLayout = JSON.parse(localStorage.getItem(layoutPreferenceKey) || 'null');
+  if (savedLayout && typeof savedLayout === 'object') {
+    if (Number.isFinite(savedLayout.x)) layout.x = THREE.MathUtils.clamp(savedLayout.x, -100, 100);
+    if (Number.isFinite(savedLayout.y)) layout.y = THREE.MathUtils.clamp(savedLayout.y, -100, 100);
+    if (Number.isFinite(savedLayout.size)) layout.size = THREE.MathUtils.clamp(savedLayout.size, 50, 200);
+  }
+} catch (_) {}
+
+positionXRange.value = String(layout.x);
+positionYRange.value = String(layout.y);
+sizeRange.value = String(layout.size);
+positionXValue.value = `${layout.x}%`;
+positionYValue.value = `${layout.y}%`;
+sizeValue.value = `${layout.size}%`;
 
 function setStatus(message) {
   status.textContent = message;
@@ -252,9 +277,45 @@ for (const definition of buttonDefinitions) {
 
 function setColumnPosition() {
   const halfWidth = cameraOrbitDistance * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
-  buttonColumn.position.x = halfWidth * 0.56;
+  const halfHeight = halfWidth / camera.aspect;
+  const extent = 1.25 * (layout.size / 100);
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  buttonColumn.position.x = clamp(
+    halfWidth * (0.56 + layout.x / 100),
+    -halfWidth + extent,
+    halfWidth - extent
+  );
+  buttonColumn.position.y = clamp(
+    halfHeight * (layout.y / 100),
+    -halfHeight + extent,
+    halfHeight - extent
+  );
+  buttonColumn.scale.setScalar(layout.size / 100);
 }
 setColumnPosition();
+
+function updateLayout(persist = true) {
+  layout.x = THREE.MathUtils.clamp(Number(positionXRange.value) || 0, -100, 100);
+  layout.y = THREE.MathUtils.clamp(Number(positionYRange.value) || 0, -100, 100);
+  layout.size = THREE.MathUtils.clamp(Number(sizeRange.value) || DEFAULT_LAYOUT.size, 50, 200);
+  positionXValue.value = `${layout.x}%`;
+  positionYValue.value = `${layout.y}%`;
+  sizeValue.value = `${layout.size}%`;
+  setColumnPosition();
+  if (persist) {
+    try { localStorage.setItem(layoutPreferenceKey, JSON.stringify(layout)); } catch (_) {}
+  }
+}
+
+positionXRange.addEventListener('input', () => updateLayout());
+positionYRange.addEventListener('input', () => updateLayout());
+sizeRange.addEventListener('input', () => updateLayout());
+document.getElementById('layout-reset').addEventListener('click', () => {
+  positionXRange.value = String(DEFAULT_LAYOUT.x);
+  positionYRange.value = String(DEFAULT_LAYOUT.y);
+  sizeRange.value = String(DEFAULT_LAYOUT.size);
+  updateLayout();
+});
 
 function setButtonPressed(button, pressed) {
   const state = buttonStates.get(button);
@@ -285,9 +346,10 @@ function render(now) {
   const dt = lastFrameAt ? Math.min(64, now - lastFrameAt) : 16;
   lastFrameAt = now;
   for (const state of buttonStates.values()) {
-    const blend = 1 - Math.exp(-dt / (state.target ? 48 : 88));
-    state.opacity += (state.target - state.opacity) * blend;
-    if (!state.target && state.opacity < 0.008) state.opacity = 0;
+    const targetOpacity = state.target ? 1 : (tiltPanel.hidden ? 0 : 0.32);
+    const blend = 1 - Math.exp(-dt / (targetOpacity ? 48 : 88));
+    state.opacity += (targetOpacity - state.opacity) * blend;
+    if (!targetOpacity && state.opacity < 0.008) state.opacity = 0;
     state.root.visible = state.opacity > 0;
     if (!state.root.visible) continue;
     state.root.scale.setScalar(0.82 + state.opacity * 0.18);
