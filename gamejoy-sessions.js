@@ -46,8 +46,6 @@ module.exports = function attachGameJoySessions(io, app) {
     function setObsArrowPosition(socket, data, onlyIfMissing = false) {
         const token = socket.obsArrowToken;
         if (!token || socket.obsInputRoom !== obsInputRoom(token)) return;
-        const target = maps.get(token) || obsVdoLinks.get(token);
-        if (!target || target.role !== 'player') return;
         const saved = obsArrowPositions.get(token);
         if (onlyIfMissing && saved) {
             socket.emit('gamejoy:obs-arrow-position', { ...saved, initialized: true });
@@ -59,13 +57,13 @@ module.exports = function attachGameJoySessions(io, app) {
         obsArrowPositions.set(token, position);
         io.to(obsInputRoom(token)).emit('gamejoy:obs-arrow-position', { ...position, initialized: true });
     }
-    function unpublishMap(p) {
+    function unpublishMap(p, forget = false) {
         if (p.mapToken && maps.get(p.mapToken) === p) {
             publishObsInput(p, 0, 0);
             io.to(obsInputRoom(p.mapToken)).emit('gamejoy:obs-stopped', {});
-            maps.delete(p.mapToken);
+            if (forget) maps.delete(p.mapToken);
         }
-        p.mapToken = null;
+        if (forget) p.mapToken = null;
     }
     function unpublishObsVdoLink(p) {
         if (p.obsVdoToken && obsVdoLinks.get(p.obsVdoToken) === p) {
@@ -93,7 +91,7 @@ module.exports = function attachGameJoySessions(io, app) {
             res.set('Cache-Control', 'no-store');
             const token = req.get('Authorization')?.replace(/^Bearer /, '');
             const player = maps.get(token);
-            if (!player) return res.sendStatus(404);
+            if (!player) return res.sendStatus(204);
             const frame = player.lastFrame;
             const remainingMs = frame && 30000 - frame.ageMs - (Date.now() - frame.receivedAt);
             if (!frame || remainingMs <= 0) return res.sendStatus(204);
@@ -104,6 +102,9 @@ module.exports = function attachGameJoySessions(io, app) {
     const label = (v, fallback) => typeof v === 'string' ? v.replace(/[\x00-\x1f]/g, '').trim().slice(0, 80) || fallback : fallback;
     const avatarUrl = v => typeof v === 'string' && v.length <= 2048 && /^https:\/\//i.test(v) ? v : '';
     const accountUserId = v => typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v) ? v : '';
+    const stableOverlayToken = userId => userId
+        ? crypto.createHash('sha256').update(`gamejoy-overlay:${userId}`).digest('hex')
+        : null;
     const send = (id, event, data) => io.to(id).emit(`gamejoy:${event}`, data);
     const profile = p => ({ id: p.id, userId: p.userId, name: p.name, channel: p.channel, avatar: p.avatar, busy: !!p.peer,
         vdoAvailable: typeof p.vdoStreamId === 'string', sharingLocation: p.sharing === true,
@@ -137,8 +138,9 @@ module.exports = function attachGameJoySessions(io, app) {
                 socket.obsArrowToken = null;
             }
             const token = typeof data?.token === 'string' ? data.token : '';
-            const target = /^[a-f0-9]{64}$/.test(token) ? (maps.get(token) || obsVdoLinks.get(token)) : null;
-            if (!target || target.role !== 'player') {
+            const validToken = /^[a-f0-9]{64}$/.test(token);
+            const target = validToken ? (maps.get(token) || obsVdoLinks.get(token)) : null;
+            if (!validToken || (target && target.role !== 'player')) {
                 socket.emit('gamejoy:obs-error', { message: 'Overlay no disponible' });
                 return;
             }
@@ -147,8 +149,8 @@ module.exports = function attachGameJoySessions(io, app) {
             socket.obsInputRoom = room;
             socket.obsArrowToken = token;
             socket.emit('gamejoy:obs-ready', {});
-            socket.emit('gamejoy:obs-input', obsInputSnapshot(target));
-            socket.emit('gamejoy:obs-buttons', { buttons: obsButtonsSnapshot(target) });
+            socket.emit('gamejoy:obs-input', target ? obsInputSnapshot(target) : { x: 0, y: 0, active: false });
+            socket.emit('gamejoy:obs-buttons', { buttons: target ? obsButtonsSnapshot(target) : [] });
             const arrowPosition = obsArrowPositions.get(token);
             socket.emit('gamejoy:obs-arrow-position', arrowPosition
                 ? { ...arrowPosition, initialized: true }
@@ -159,11 +161,16 @@ module.exports = function attachGameJoySessions(io, app) {
         socket.on('gamejoy:register', (data = {}) => {
             if (!data || !['player', 'controller'].includes(data.role)) return;
             const old = players.get(socket.id);
-            if (old) { unpublishMap(old); unpublishObsVdoLink(old); unpair(old); }
+            if (old) { unpublishMap(old, true); unpublishObsVdoLink(old); unpair(old); }
             const p = { id: socket.id, role: data.role, userId: accountUserId(data.userId), name: label(data.name, 'Jugador'),
                 channel: label(data.channel, ''), avatar: avatarUrl(data.avatar), sharing: false, peer: null, lastFrame: null, vdoStreamId: null,
                 mapToken: null, obsVdoToken: null, obsInputState: null, obsButtons: new Set(), lastInputAt: 0, lastLocationAt: 0, lastSelectAt: 0 };
             players.set(socket.id, p);
+            const userOverlayToken = p.role === 'player' ? stableOverlayToken(p.userId) : null;
+            if (userOverlayToken) {
+                p.mapToken = userOverlayToken;
+                maps.set(userOverlayToken, p);
+            }
             socket.emit('gamejoy:ready', { version: 1 });
             list();
         });
@@ -211,7 +218,7 @@ module.exports = function attachGameJoySessions(io, app) {
                 if (typeof ack === 'function') ack({ success: false });
                 return;
             }
-            const token = crypto.createHash('sha256').update(key).digest('hex');
+            const token = stableOverlayToken(p.userId) || crypto.createHash('sha256').update(key).digest('hex');
             const owner = obsVdoLinks.get(token);
             if (owner && owner !== p) {
                 if (typeof ack === 'function') ack({ success: false });
@@ -254,7 +261,7 @@ module.exports = function attachGameJoySessions(io, app) {
             }
             // The publisher keeps the key across reconnects. Viewers get only its digest.
             const token = crypto.createHash('sha256').update(key).digest('hex');
-            unpublishMap(p);
+            if (p.mapToken && p.mapToken !== token) unpublishMap(p, true);
             p.mapToken = token;
             maps.set(token, p);
             if (typeof ack === 'function') ack({ success: true, token });
@@ -324,7 +331,7 @@ module.exports = function attachGameJoySessions(io, app) {
         socket.on('disconnect', () => {
             const p = players.get(socket.id);
             if (!p) return;
-            unpublishMap(p); unpublishObsVdoLink(p);
+            unpublishMap(p, true); unpublishObsVdoLink(p);
             unpair(p, 'El otro jugador se desconectó');
             players.delete(socket.id); list();
         });
