@@ -111,9 +111,9 @@ module.exports = function attachGameJoySessions(io, app) {
         vdoOrientation: p.vdoOrientation ?? null });
     const peerProfile = p => ({ ...profile(p), vdoStreamId: p.vdoStreamId });
     function list() {
-        // Controllers can select only players sharing location or actively
-        // publishing video; the Android client also requires a saved video_id.
-        const available = [...players.values()].filter(p => p.role === 'player' && (p.sharing || typeof p.vdoStreamId === 'string')).map(profile);
+        // Send connected player profiles so Android can match each user to a
+        // saved YouTube video_id; the client hides cards without that ID.
+        const available = [...players.values()].filter(p => p.role === 'player').map(profile);
         for (const p of players.values()) if (p.role === 'controller') send(p.id, 'players', available);
     }
     function unpair(p, reason = 'Partida desconectada') {
