@@ -4,7 +4,8 @@ const path = require('node:path');
 
 // Separate from the legacy PC/game protocol. Profiles are display labels;
 // routing and ownership always use the server-owned socket, never a supplied user id.
-module.exports = function attachGameJoySessions(io, app) {
+const readAccount = require('./gamejoy-authority');
+module.exports = function attachGameJoySessions(io, app, authority = readAccount) {
     const players = new Map();
     const maps = new Map();
     const obsVdoLinks = new Map();
@@ -101,7 +102,6 @@ module.exports = function attachGameJoySessions(io, app) {
     const validNumber = (v, min, max) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
     const label = (v, fallback) => typeof v === 'string' ? v.replace(/[\x00-\x1f]/g, '').trim().slice(0, 80) || fallback : fallback;
     const avatarUrl = v => typeof v === 'string' && v.length <= 2048 && /^https:\/\//i.test(v) ? v : '';
-    const accountUserId = v => typeof v === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(v) ? v : '';
     const stableOverlayToken = userId => userId
         ? crypto.createHash('sha256').update(`gamejoy-overlay:${userId}`).digest('hex')
         : null;
@@ -131,6 +131,60 @@ module.exports = function attachGameJoySessions(io, app) {
         }
         send(p.id, 'reset', {});
     }
+    function permitted(controller, target) {
+        const now = Date.now();
+        if (!controller || !target || controller.validUntil <= now || target.validUntil <= now) return false;
+        if (!controller.automatic) return true;
+        return controller.target === target.userId && typeof target.vdoStreamId === 'string';
+    }
+
+    function checkPair(p) {
+        const peer = players.get(p.peer);
+        if (!peer) return;
+        const allowed = p.role === 'controller' ? permitted(p, peer) : permitted(peer, p);
+        if (!allowed) {
+            unpair(p, 'El turno o la transmisión ha terminado');
+            list();
+        }
+    }
+
+    function sendTurn(p) {
+        if (p.role === 'controller') send(p.id, 'turn', {
+            automatic: p.automatic,
+            targetUserId: p.validUntil > Date.now() && p.automatic ? p.target : null
+        });
+    }
+
+    async function refresh(p) {
+        if (p.refreshing) return;
+        p.refreshing = true;
+        const started = Date.now();
+        try {
+            const account = await authority(p.token, p.role);
+            if (players.get(p.id) !== p) return;
+            if (account.userId !== p.userId) throw new Error('Cuenta incorrecta');
+            const modeChanged = p.automatic !== account.automatic;
+            p.automatic = account.automatic;
+            p.target = account.target;
+            p.validUntil = started + 3500;
+            if (modeChanged && p.peer && p.role === 'controller') { unpair(p); list(); }
+        } catch (error) {
+            if (players.get(p.id) !== p) return;
+            if (error.invalidSession) {
+                unpublishMap(p, true); unpublishObsVdoLink(p); unpair(p, 'Sesión caducada');
+                players.delete(p.id); list();
+                send(p.id, 'auth-error', { retry: false, message: 'Vuelve a iniciar sesión' });
+                return;
+            }
+            p.validUntil = 0;
+            p.target = null;
+        } finally {
+            p.refreshing = false;
+        }
+        checkPair(p);
+        sendTurn(p);
+    }
+
     io.on('connection', socket => {
         socket.emit('gamejoy:hello', { version: 1 });
         socket.on('gamejoy:obs-subscribe', (data = {}) => {
@@ -160,12 +214,35 @@ module.exports = function attachGameJoySessions(io, app) {
         });
         socket.on('gamejoy:obs-arrow-position-set', data => setObsArrowPosition(socket, data));
         socket.on('gamejoy:obs-arrow-position-seed', data => setObsArrowPosition(socket, data, true));
-        socket.on('gamejoy:register', (data = {}) => {
+        let registration = 0;
+        socket.on('gamejoy:register', async (data = {}) => {
             if (!data || !['player', 'controller'].includes(data.role)) return;
+            const attempt = ++registration;
             const old = players.get(socket.id);
-            if (old) { unpublishMap(old, true); unpublishObsVdoLink(old); unpair(old); }
-            const p = { id: socket.id, role: data.role, userId: accountUserId(data.userId), name: label(data.name, 'Jugador'),
-                channel: label(data.channel, ''), avatar: avatarUrl(data.avatar), sharing: false, peer: null, lastFrame: null, vdoStreamId: null,
+            if (old) {
+                unpublishMap(old, true); unpublishObsVdoLink(old); unpair(old);
+                players.delete(socket.id); list();
+            }
+            const token = data.sessionToken;
+            const started = Date.now();
+            let account;
+            try {
+                if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) {
+                    throw Object.assign(new Error(), { invalidSession: true });
+                }
+                account = await authority(token, data.role);
+                if (account.userId !== data.userId) throw Object.assign(new Error(), { invalidSession: true });
+            } catch (error) {
+                if (attempt === registration && socket.connected) {
+                    send(socket.id, 'auth-error', { retry: !error.invalidSession, message: 'No se pudo verificar la sesión. Reintenta o inicia sesión de nuevo.' });
+                }
+                return;
+            }
+            if (!socket.connected || registration !== attempt) return;
+            const p = { id: socket.id, role: data.role, userId: account.userId, token, automatic: account.automatic,
+                target: account.target, validUntil: started + 3500, lastChecked: started,
+                name: label(data.name, 'Jugador'), channel: account.channel, avatar: avatarUrl(data.avatar),
+                sharing: false, peer: null, lastFrame: null, vdoStreamId: null,
                 mapToken: null, obsVdoToken: null, obsInputState: null, obsButtons: new Set(), lastInputAt: 0, lastLocationAt: 0, lastSelectAt: 0 };
             players.set(socket.id, p);
             const userOverlayToken = p.role === 'player' ? stableOverlayToken(p.userId) : null;
@@ -173,7 +250,8 @@ module.exports = function attachGameJoySessions(io, app) {
                 p.mapToken = userOverlayToken;
                 maps.set(userOverlayToken, p);
             }
-            socket.emit('gamejoy:ready', { version: 1 });
+            socket.emit('gamejoy:ready', { version: 2 });
+            sendTurn(p);
             list();
         });
         socket.on('gamejoy:channel', (data, ack) => {
@@ -206,7 +284,7 @@ module.exports = function attachGameJoySessions(io, app) {
             } else {
                 p.vdoStreamId = null;
                 p.vdoOrientation = null;
-                if (!p.sharing && p.peer) unpair(p, 'El jugador dejó de compartir vídeo');
+                if (p.peer && (!p.sharing || players.get(p.peer)?.automatic)) unpair(p, 'El jugador dejó de compartir vídeo');
             }
             list();
             const peer = players.get(p.peer);
@@ -235,7 +313,8 @@ module.exports = function attachGameJoySessions(io, app) {
             const controller = players.get(socket.id);
             const target = players.get(typeof data?.id === 'string' ? data.id : '');
             const allowed = controller?.role === 'controller' && target?.role === 'player' &&
-                typeof target.vdoStreamId === 'string';
+                typeof target.vdoStreamId === 'string' && permitted(controller, target) &&
+                (!controller.automatic || controller.peer === target.id && target.peer === controller.id);
             if (typeof ack === 'function') {
                 if (!allowed) return ack({ success: false });
                 const reply = { success: true, streamId: target.vdoStreamId };
@@ -273,7 +352,19 @@ module.exports = function attachGameJoySessions(io, app) {
             if (!p || p.role !== 'controller') return;
             const id = typeof data?.id === 'string' ? data.id : '';
             if (!id) { unpair(p); list(); return; }
-            const target = players.get(id);
+            let target = players.get(id);
+            if (p.automatic && p.target) {
+                const matches = [...players.values()].filter(player =>
+                    player.role === 'player' && player.userId === p.target && player.vdoStreamId &&
+                    (!player.peer || player.peer === p.id));
+                target = matches.length === 1 && matches[0].id === id ? matches[0] : null;
+            }
+            if (!permitted(p, target) || (data.targetUserId != null &&
+                (!p.automatic || data.targetUserId !== p.target))) {
+                checkPair(p);
+                send(p.id, 'error', { message: 'Jugador no autorizado para este turno' });
+                return;
+            }
             if (p.peer === id && target?.peer === p.id) return;
             if (Date.now() - p.lastSelectAt < 300) return;
             p.lastSelectAt = Date.now();
@@ -299,6 +390,8 @@ module.exports = function attachGameJoySessions(io, app) {
         socket.on('gamejoy:input', data => {
             const p = players.get(socket.id), target = players.get(p?.peer);
             if (!p || p.role !== 'controller' || !target || target.peer !== p.id || (!target.sharing && typeof target.vdoStreamId !== 'string')) return;
+            if (!permitted(p, target)) { checkPair(p); return; }
+            if (p.automatic && data?.targetId && data.targetId !== target.id) return;
             if (!data || !['joystick', 'press', 'release'].includes(data.kind)) return;
             let input;
             if (data.kind === 'joystick') {
@@ -342,6 +435,11 @@ module.exports = function attachGameJoySessions(io, app) {
     const timer = setInterval(() => {
         const now = Date.now();
         for (const p of players.values()) {
+            checkPair(p);
+            if (now - p.lastChecked >= 2000) {
+                p.lastChecked = now;
+                void refresh(p);
+            }
             if (p.lastFrame && now - p.lastLocationAt > 10000) {
                 p.lastFrame = null;
                 if (p.peer) send(p.peer, 'location-stopped', {});
@@ -354,7 +452,7 @@ module.exports = function attachGameJoySessions(io, app) {
                 p.lastInputAt = 0;
             }
         }
-    }, 1000);
+    }, 250);
     timer.unref?.();
     return () => clearInterval(timer);
 };
