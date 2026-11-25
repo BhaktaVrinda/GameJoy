@@ -1,0 +1,23 @@
+<!doctype html><html lang="es"><meta charset="utf-8"><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#e5e9e3}.map-google,iframe{position:absolute;inset:0;width:100%;height:100%;border:0}.map-location-dot{position:absolute;z-index:2;top:50%;left:50%;display:none;width:6%;aspect-ratio:1;transform:translate(-50%,-50%);border:3px solid white;border-radius:50%;background:#1a73e8;box-shadow:0 0 0 9px #1a73e844,0 2px 5px #0007;pointer-events:none}body.google-ready .map-location-dot{display:block}body > svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}body.google-ready > svg{display:none}</style><div class="map-google"><iframe title="Google Maps" referrerpolicy="strict-origin-when-cross-origin"></iframe></div><span class="map-location-dot" role="img" aria-label="Punto azul de ubicación"></span><svg viewBox="0 0 360 204" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Rota ilustrativa da praça até o monumento. A seta indica a sua posição.">
+<defs>
+  <pattern id="district" width="66" height="51" patternUnits="userSpaceOnUse" patternTransform="rotate(-18)">
+    <rect width="66" height="51" fill="#e5e9e3"/>
+    <rect x="2" y="2" width="62" height="47" rx="4" fill="#f2f2ec"/>
+    <path d="M7 7h25v15H7zm29 0h22v35H45V25h-9zM7 27h29v14H7z" fill="#d9e3d4"/>
+  </pattern>
+  <path id="avenues" d="M-12 177 82 143 147 143 201 89 276 89 375 53M-9 60 68 78 120 59 156 1M72 215 91 166 82 143 68 78 35 -8M178 214 147 143M201 89 184 52 208 -9M276 89 302 137 371 156"/>
+  <path id="route" d="M101 143H147L201 89H249"/>
+</defs>
+<rect width="360" height="204" fill="url(#district)"/>
+<path d="M204 0h91l-8 40-38 25-49-14-5-24z" fill="#b8dfb1" stroke="#9fc997" stroke-width="2"/>
+<path d="M301 -10Q276 38 310 76T341 142Q339 170 318 212" fill="none" stroke="#b7e2eb" stroke-width="29"/>
+<path d="M301 -10Q276 38 310 76T341 142Q339 170 318 212" fill="none" stroke="#8dcee5" stroke-width="24"/>
+<g fill="none" stroke-linejoin="round"><use href="#avenues" stroke="#c8ceca" stroke-width="13"/><use href="#avenues" stroke="#fff" stroke-width="8"/>
+<use href="#route" stroke="#e7f0ff" stroke-width="9"/><use href="#route" stroke="#1785ee" stroke-width="4.5"/></g>
+<g font-family="Arial,sans-serif" fill="#3e5258" font-size="11" font-weight="bold" paint-order="stroke" stroke="#fff" stroke-width="3">
+<text x="104" y="178">Praça central</text><text x="209" y="118">Monumento</text></g>
+<circle cx="101" cy="143" r="18" fill="#1976d2" fill-opacity=".18" stroke="#1976d2" stroke-opacity=".55"/>
+<path d="m113 143-19-9 4 9-4 9z" stroke="#155aa0" fill="white" stroke-width="2"/>
+<path d="M249 89s-10-11-10-18a10 10 0 0 1 20 0c0 7-10 18-10 18z" fill="#ffc454" stroke="#322918" stroke-width="2"/>
+<circle cx="249" cy="71" r="3.2" fill="#573619"/>
+</svg><script src="../settings/bus.js"></script><script src="view.js"></script></html>
