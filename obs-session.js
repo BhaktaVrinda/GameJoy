@@ -103,7 +103,7 @@ module.exports = function attachObsSession(app, options = {}) {
             sessions.set(id, { username: String(account.username || 'GameJoy').slice(0, 80),
                 tokens, expiresAt: Date.now() + SESSION_MS });
             res.set('Set-Cookie', sessionCookie(id, Math.floor(SESSION_MS / 1000)));
-            res.redirect(303, '/obs/ready');
+            res.redirect(303, '/obs/overlay');
         } catch {
             res.redirect(303, '/obs/ready?error=connect');
         }

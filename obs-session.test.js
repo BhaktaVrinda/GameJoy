@@ -33,7 +33,7 @@ test('OBS connects once and each clean overlay URL gets only its own database to
             method: 'POST', redirect: 'manual', body: new URLSearchParams({ ticket })
         });
         assert.equal(login.status, 303);
-        assert.equal(login.headers.get('location'), '/obs/ready');
+        assert.equal(login.headers.get('location'), '/obs/overlay');
         assert.match(login.headers.get('set-cookie'), /HttpOnly; Secure; SameSite=Lax/);
         assert.doesNotMatch(login.headers.get('location'), new RegExp(ticket));
         const cookie = login.headers.get('set-cookie').split(';', 1)[0];

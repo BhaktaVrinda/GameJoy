@@ -39,7 +39,7 @@ document.getElementById('obs-auth-logout').addEventListener('click', async () =>
   try {
     await fetch('/obs/session/logout', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
   } catch {}
-  showAuthPanel('Sesión cerrada. Pulsa “Iniciar sesión” para conectar OBS otra vez.');
+  showAuthPanel('Sesión cerrada. Pulsa “Abrir formulario GameJoy” para conectar OBS otra vez.');
 });
 
 function publish(data) {
