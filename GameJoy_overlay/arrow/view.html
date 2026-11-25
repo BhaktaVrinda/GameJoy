@@ -1,0 +1,12 @@
+<!doctype html><html lang="pt-BR"><meta charset="utf-8"><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}main{position:relative;width:100%;height:100%;container-type:inline-size}.navigation{position:absolute;width:7%;bottom:17%;left:46.5%;filter:drop-shadow(0 0 .5cqw #00abff)}.navigation svg{display:block;width:100%;overflow:visible;fill:#e8fdff;stroke:#05bfff;stroke-width:6;stroke-linejoin:round}#steering-scene{position:absolute;inset:0;width:100%;height:100%;visibility:hidden}.steering-3d #steering-scene{visibility:visible}.steering-3d .navigation svg{visibility:hidden}</style><main><canvas id="steering-scene"></canvas><div class="navigation" id="direction-arrow" role="img" aria-label="Direção: em frente">
+  <svg viewBox="0 0 190 200" aria-hidden="true">
+    <path id="steering-line" d="M95 185 C95 127 95 60 95 25" fill="none" stroke-width="5" stroke-linecap="round"/>
+    <g id="steering-arrows">
+    </g>
+    <circle id="steering-anchor" cx="95" cy="185" r="10"/>
+    <g id="steering-tip" transform="translate(95 25)">
+      <circle r="5" stroke-width="2"/>
+    </g>
+  </svg>
+</div>
+<input type="checkbox" id="show-grid" hidden><span id="camera-angle" hidden></span></main><script src="../settings/bus.js"></script><script src="../vendor/three-gamejoy.min.js"></script><script src="renderer.js"></script><script src="logic.js"></script></html>
