@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin">
+  <title>Señal VDO.Ninja de GameJoy</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #000; }
+    #viewer, iframe, #status { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+    iframe { display: block; }
+    #status { display: grid; place-content: center; box-sizing: border-box; padding: 24px;
+              background: #000; color: #e8edf2; text-align: center;
+              font: 500 15px system-ui, sans-serif; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="viewer"></div>
+  <div id="status" role="status">Conectando con GameJoy…</div>
+  <script type="module">
+    import { waitForObsToken } from '/obs-session-token.js';
+    const viewer = document.getElementById('viewer');
+    const status = document.getElementById('status');
+    const obsAccess = await waitForObsToken('direct', message => { status.textContent = message; });
+    const token = obsAccess.token;
+    let streamId = null;
+    let frame = null;
+
+    function showMessage(message) {
+      status.textContent = message;
+      status.hidden = false;
+    }
+
+    function clearStream(message) {
+      streamId = null;
+      frame?.remove();
+      frame = null;
+      showMessage(message);
+    }
+
+    function showStream(id) {
+      if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{16,64}$/.test(id)) {
+        if (streamId !== null || frame) clearStream('Esperando a que inicies el vídeo en GameJoy…');
+        else showMessage('Esperando a que inicies el vídeo en GameJoy…');
+        return;
+      }
+      if (id === streamId) return;
+      streamId = id;
+      const next = document.createElement('iframe');
+      next.title = 'Vídeo y audio de VDO.Ninja';
+      next.allow = 'autoplay; fullscreen; microphone; camera; display-capture';
+      next.allowFullscreen = true;
+      next.referrerPolicy = 'strict-origin';
+      next.onload = () => {
+        if (frame === next) status.hidden = true;
+      };
+      next.src = 'https://vdo.ninja/?view=' + encodeURIComponent(id) + '&cleanoutput&autoplay&mutespeaker=0';
+      frame?.remove();
+      frame = next;
+      viewer.appendChild(next);
+      showMessage('Conectando con VDO.Ninja…');
+    }
+
+    async function update() {
+      const abort = new AbortController();
+      const deadline = setTimeout(() => abort.abort(), 3500);
+      try {
+        const result = await fetch('/obs/vdo/current', {
+          headers: { Authorization: 'Bearer ' + token },
+          cache: 'no-store', signal: abort.signal
+        });
+        if (result.status === 404) clearStream('Abre GameJoy y comparte tu ubicación para conectar el directo.');
+        else if (!result.ok) throw new Error();
+        else showStream((await result.json()).streamId);
+      } catch {
+        showMessage('Reconectando con GameJoy…');
+      } finally {
+        clearTimeout(deadline);
+        setTimeout(update, 1000);
+      }
+    }
+
+    if (/^[0-9a-f]{64}$/.test(token)) update();
+    else showMessage(obsAccess.message);
+  </script>
+</body>
+</html>

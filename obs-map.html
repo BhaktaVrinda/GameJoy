@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin">
+  <title>Minimapa de GameJoy</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+    body { display: grid; place-items: center; }
+    main { position: relative; width: min(100vw, 100vh); height: min(100vw, 100vh);
+           box-sizing: border-box; overflow: hidden; border: 12px solid transparent; border-radius: 50%;
+           background: linear-gradient(#f6f8fa, #f6f8fa) padding-box,
+             conic-gradient(from 0deg, #59e1ff 0deg, #3579f6 90deg, #936dff 180deg,
+               #66c0f4 270deg, #59e1ff 360deg) border-box;
+           color: #38434e; font: 500 15px system-ui, sans-serif; }
+    #maps, #status, #indicator-wrap { position: absolute; inset: 4px; overflow: hidden; border-radius: 50%; }
+    #maps { z-index: 0; background: #f6f8fa; }
+    #maps iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+    #status { display: grid; place-content: center; padding: 24px; box-sizing: border-box;
+              z-index: 10; background: #f6f8fa; text-align: center; }
+    #indicator-wrap { z-index: 20; pointer-events: none; }
+    #location-indicator { display: block; width: 100%; height: 100%; }
+    #direction-beam { display: none; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <div id="maps"></div>
+    <div id="status" role="status">Esperando ubicación…</div>
+    <div id="indicator-wrap" aria-hidden="true">
+      <svg id="location-indicator" viewBox="0 0 200 200" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <radialGradient id="beam-glow" cx="100" cy="100" r="90" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#4285f4" stop-opacity=".53" />
+            <stop offset=".4" stop-color="#4285f4" stop-opacity=".33" />
+            <stop offset="1" stop-color="#4285f4" stop-opacity="0" />
+          </radialGradient>
+        </defs>
+        <g id="direction-beam" transform="rotate(0 100 100)">
+          <path d="M58.5 19.6 A90 90 0 0 1 141.5 19.6 L104.6 91.2 A10 10 0 0 0 95.4 91.2 Z" fill="url(#beam-glow)" />
+        </g>
+        <circle cx="100" cy="100" r="14" fill="#4285f4" opacity=".2" />
+        <circle cx="100" cy="100" r="7" fill="#4285f4" stroke="#fff" stroke-width="3" />
+      </svg>
+    </div>
+  </main>
+  <script type="module">
+    import { waitForObsToken } from '/obs-session-token.js';
+    const maps = document.getElementById('maps');
+    const status = document.getElementById('status');
+    const directionBeam = document.getElementById('direction-beam');
+    const obsAccess = await waitForObsToken('map', message => { status.textContent = message; });
+    const token = obsAccess.token;
+    const zoom = 21;
+    const recenterDistanceMeters = 14;
+    const minMapReloadIntervalMs = 5000;
+    let center = null;
+    let current = null;
+    let loading = null;
+    let loadTimeout = null;
+    let retryTimer = null;
+    let queuedPoint = null;
+    let lastMapRequestAt = 0;
+    let hasPosition = false;
+    let latestHeading = null;
+    let displayedHeading = null;
+    let headingAnimationFrame = null;
+    let headingAnimationStartedAt = 0;
+    let headingAnimationFrom = 0;
+    let headingAnimationTo = 0;
+    const headingAnimationDuration = 300;
+
+    function hide(message) {
+      hasPosition = false;
+      status.textContent = message;
+      status.hidden = false;
+      directionBeam.style.display = 'none';
+      if (loading) {
+        loading.onload = null;
+        loading.onerror = null;
+        loading.remove();
+        loading = null;
+      }
+      clearTimeout(loadTimeout);
+      clearTimeout(retryTimer);
+      retryTimer = null;
+      queuedPoint = null;
+      if (headingAnimationFrame !== null) cancelAnimationFrame(headingAnimationFrame);
+      headingAnimationFrame = null;
+      displayedHeading = null;
+    }
+
+    function animateHeading(now) {
+      const progress = Math.min(1, (now - headingAnimationStartedAt) / headingAnimationDuration);
+      const eased = progress * progress * (3 - 2 * progress);
+      displayedHeading = headingAnimationFrom + (headingAnimationTo - headingAnimationFrom) * eased;
+      directionBeam.setAttribute('transform', 'rotate(' + displayedHeading + ' 100 100)');
+      if (progress < 1) headingAnimationFrame = requestAnimationFrame(animateHeading);
+      else headingAnimationFrame = null;
+    }
+
+    function showHeading() {
+      const visible = hasPosition && Number.isFinite(latestHeading);
+      directionBeam.style.display = visible ? 'inline' : 'none';
+      if (!visible) {
+        if (headingAnimationFrame !== null) cancelAnimationFrame(headingAnimationFrame);
+        headingAnimationFrame = null;
+        displayedHeading = null;
+        return;
+      }
+      const nextHeading = ((latestHeading % 360) + 360) % 360;
+      if (displayedHeading === null) {
+        displayedHeading = nextHeading;
+        directionBeam.setAttribute('transform', 'rotate(' + displayedHeading + ' 100 100)');
+        return;
+      }
+      if (headingAnimationFrame !== null) cancelAnimationFrame(headingAnimationFrame);
+      headingAnimationFrame = null;
+      const delta = ((nextHeading - displayedHeading + 180) % 360 + 360) % 360 - 180;
+      if (Math.abs(delta) < 0.5) return;
+      headingAnimationFrom = displayedHeading;
+      headingAnimationTo = displayedHeading + delta;
+      headingAnimationStartedAt = performance.now();
+      headingAnimationFrame = requestAnimationFrame(animateHeading);
+    }
+
+    function distanceMeters(a, b) {
+      const north = (b.latitude - a.latitude) * 111320;
+      const east = (b.longitude - a.longitude) * 111320 * Math.cos(b.latitude * Math.PI / 180);
+      return Math.hypot(north, east);
+    }
+
+    function scheduleMapUpdate(delay) {
+      if (retryTimer !== null) return;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        const point = queuedPoint;
+        queuedPoint = null;
+        if (point && hasPosition) showPosition(point);
+      }, Math.max(0, delay));
+    }
+
+    function requestGoogleMap(point) {
+      const url = new URL('https://maps.google.com/maps');
+      url.search = new URLSearchParams({
+        ll: point.latitude + ',' + point.longitude,
+        z: zoom,
+        t: 'm',
+        hl: 'es',
+        output: 'embed'
+      });
+      const frame = document.createElement('iframe');
+      frame.title = 'Ubicación en Google Maps';
+      frame.referrerPolicy = 'strict-origin';
+      frame.style.visibility = 'hidden';
+      frame._gamejoyPoint = point;
+      loading = frame;
+      lastMapRequestAt = Date.now();
+      frame.onload = () => {
+        if (loading !== frame) return;
+        clearTimeout(loadTimeout);
+        frame.style.visibility = 'visible';
+        current?.remove();
+        current = frame;
+        center = frame._gamejoyPoint;
+        loading = null;
+        status.hidden = true;
+        showHeading();
+        if (queuedPoint && distanceMeters(center, queuedPoint) >= recenterDistanceMeters) {
+          scheduleMapUpdate(minMapReloadIntervalMs - (Date.now() - lastMapRequestAt));
+        } else {
+          queuedPoint = null;
+        }
+      };
+      frame.onerror = () => {
+        if (loading !== frame) return;
+        clearTimeout(loadTimeout);
+        loading = null;
+        frame.remove();
+        if (!current) {
+          status.textContent = 'No se pudo cargar Google Maps';
+          status.hidden = false;
+        }
+      };
+      loadTimeout = setTimeout(() => {
+        if (loading !== frame) return;
+        loading = null;
+        frame.onload = null;
+        frame.onerror = null;
+        frame.remove();
+        if (!current) {
+          status.textContent = 'Google Maps está tardando en responder';
+          status.hidden = false;
+        }
+      }, 12000);
+      frame.src = url.href;
+      maps.appendChild(frame);
+      if (!current) {
+        status.textContent = 'Cargando Google Maps…';
+        status.hidden = false;
+      }
+    }
+
+    function showPosition(point) {
+      latestHeading = point.heading;
+      hasPosition = true;
+      showHeading();
+      if (loading) {
+        queuedPoint = point;
+        return;
+      }
+      if (current && center && distanceMeters(center, point) < recenterDistanceMeters) {
+        status.hidden = true;
+        return;
+      }
+      const remaining = minMapReloadIntervalMs - (Date.now() - lastMapRequestAt);
+      if (lastMapRequestAt && remaining > 0) {
+        queuedPoint = point;
+        if (!current) {
+          status.textContent = 'Cargando Google Maps…';
+          status.hidden = false;
+        }
+        scheduleMapUpdate(remaining);
+        return;
+      }
+      requestGoogleMap(point);
+    }
+
+    async function update() {
+      const abort = new AbortController();
+      const deadline = setTimeout(() => abort.abort(), 3500);
+      try {
+        const result = await fetch('/obs/position', { headers: { Authorization: 'Bearer ' + token },
+          cache: 'no-store', signal: abort.signal });
+        if (result.status === 404) return hide('Ubicación sin compartir');
+        if (result.status === 204) return hide('Esperando GPS…');
+        if (!result.ok) throw new Error();
+        showPosition(await result.json());
+      } catch {
+        hide('Reconectando…');
+      } finally {
+        clearTimeout(deadline);
+        setTimeout(update, 1000);
+      }
+    }
+    if (/^[0-9a-f]{64}$/.test(token)) update();
+    else hide(obsAccess.message);
+  </script>
+</body>
+</html>

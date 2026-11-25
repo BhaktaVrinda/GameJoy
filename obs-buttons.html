@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GameJoy · Botones OBS</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+    canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
+    #status {
+      position: absolute; top: 18px; left: 18px; padding: 8px 13px;
+      border: 1px solid rgba(89, 225, 255, .24); border-radius: 999px;
+      background: rgba(8, 17, 29, .82); color: #d9f8ff;
+      font: 600 13px system-ui, sans-serif; letter-spacing: .02em;
+    }
+    #status[hidden] { display: none; }
+    #tilt-panel {
+      position: absolute; top: 18px; left: 18px; width: min(320px, calc(100vw - 36px));
+      box-sizing: border-box; padding: 16px; border: 1px solid rgba(89, 225, 255, .35);
+      border-radius: 14px; background: rgba(8, 17, 29, .94); color: #e5faff;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, .35); font: 500 14px system-ui, sans-serif;
+    }
+    #tilt-panel[hidden] { display: none; }
+    #tilt-panel .tilt-heading, #tilt-panel .tilt-label {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    #tilt-panel .tilt-heading { margin-bottom: 18px; font-weight: 700; }
+    #tilt-panel .tilt-label { margin-bottom: 8px; color: #b9eaf5; }
+    #tilt-panel input[type="range"] { width: 100%; accent-color: #52dbff; }
+    #tilt-panel .layout-control { margin: 0 0 14px; }
+    #tilt-panel .layout-control .tilt-label { margin-bottom: 5px; }
+    #tilt-panel .tilt-help { margin-top: 7px; color: #9dbcc8; font-size: 12px; }
+    #tilt-panel button {
+      border: 1px solid rgba(89, 225, 255, .35); border-radius: 8px;
+      padding: 7px 10px; background: rgba(22, 62, 82, .82); color: #e5faff;
+      font: inherit; cursor: pointer;
+    }
+    #tilt-panel .tilt-heading button { padding: 4px 8px; }
+    #tilt-reset { margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <canvas id="buttons" aria-hidden="true"></canvas>
+  <div id="status" role="status">Conectando con GameJoy…</div>
+  <section id="tilt-panel" role="dialog" aria-label="Ajustar botones" hidden>
+    <div class="tilt-heading">
+      <span>Ajustar rombo</span>
+      <button id="tilt-close" type="button" aria-label="Cerrar">×</button>
+    </div>
+    <div class="layout-control">
+      <label class="tilt-label" for="position-x-range">
+        <span>Horizontal</span><output id="position-x-value">0%</output>
+      </label>
+      <input id="position-x-range" type="range" min="-100" max="100" step="1" value="0">
+    </div>
+    <div class="layout-control">
+      <label class="tilt-label" for="position-y-range">
+        <span>Vertical</span><output id="position-y-value">0%</output>
+      </label>
+      <input id="position-y-range" type="range" min="-100" max="100" step="1" value="0">
+    </div>
+    <div class="layout-control">
+      <label class="tilt-label" for="size-range">
+        <span>Tamaño</span><output id="size-value">100%</output>
+      </label>
+      <input id="size-range" type="range" min="50" max="200" step="1" value="100">
+    </div>
+    <label class="tilt-label" for="tilt-range">
+      <span>Ángulo de cámara</span><output id="tilt-value">12°</output>
+    </label>
+    <input id="tilt-range" type="range" min="5" max="25" step="1" value="12">
+    <div class="tilt-help">Los cambios se guardan para este enlace OBS. En edición se muestran los cuatro botones.</div>
+    <button id="layout-reset" type="button">Restablecer posición y tamaño</button>
+    <button id="tilt-reset" type="button">Restablecer vista</button>
+  </section>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/obs-buttons-three.js"></script>
+</body>
+</html>

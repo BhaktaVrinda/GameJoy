@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="strict-origin">
+  <title>GameJoy OBS Arrow</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
+    canvas { display: block; width: 100%; height: 100%; pointer-events: none; }
+    #status {
+      position: absolute; left: 50%; bottom: 3%; transform: translateX(-50%);
+      padding: 8px 13px; border: 1px solid rgba(89, 225, 255, .24); border-radius: 999px;
+      background: rgba(8, 17, 29, .82); color: #d9f8ff;
+      font: 600 13px system-ui, sans-serif; letter-spacing: .02em;
+    }
+    #status[hidden] { display: none; }
+    #tilt-panel {
+      position: absolute; top: 18px; left: 18px; width: min(320px, calc(100vw - 36px));
+      box-sizing: border-box; padding: 16px; border: 1px solid rgba(89, 225, 255, .35);
+      border-radius: 14px; background: rgba(8, 17, 29, .94); color: #e5faff;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, .35);
+      font: 500 14px system-ui, sans-serif;
+    }
+    #tilt-panel[hidden] { display: none; }
+    #tilt-panel .tilt-heading, #tilt-panel .tilt-label {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    #tilt-panel .tilt-heading { margin-bottom: 18px; font-weight: 700; }
+    #tilt-panel .tilt-label { margin-bottom: 8px; color: #b9eaf5; }
+    #tilt-panel input[type="range"] { width: 100%; accent-color: #52dbff; }
+    #tilt-panel .tilt-help { margin-top: 7px; color: #9dbcc8; font-size: 12px; }
+    #tilt-panel button {
+      border: 1px solid rgba(89, 225, 255, .35); border-radius: 8px;
+      padding: 7px 10px; background: rgba(22, 62, 82, .82); color: #e5faff;
+      font: inherit; cursor: pointer;
+    }
+    #tilt-panel .tilt-heading button { padding: 4px 8px; }
+    #tilt-reset { margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <canvas id="arrow" aria-hidden="true"></canvas>
+  <div id="status" role="status">Cargando el espacio 3D…</div>
+  <section id="tilt-panel" role="dialog" aria-label="Ajustar perspectiva del suelo" hidden>
+    <div class="tilt-heading">
+      <span>Ajustar perspectiva del suelo</span>
+      <button id="tilt-close" type="button" aria-label="Cerrar">×</button>
+    </div>
+    <label class="tilt-label" for="tilt-range">
+      <span>Ángulo sobre el suelo</span><output id="tilt-value">12°</output>
+    </label>
+    <input id="tilt-range" type="range" min="5" max="25" step="1" value="12">
+    <div class="tilt-help">Menor: más a nivel del suelo. Mayor: más desde arriba.</div>
+    <label class="tilt-label" for="arrow-x-range" style="margin-top: 16px">
+      <span>Izquierda o derecha</span><output id="arrow-x-value">0%</output>
+    </label>
+    <input id="arrow-x-range" type="range" min="-100" max="100" step="1" value="0">
+    <label class="tilt-label" for="arrow-y-range" style="margin-top: 12px">
+      <span>Subir o bajar</span><output id="arrow-y-value">0%</output>
+    </label>
+    <input id="arrow-y-range" type="range" min="-100" max="100" step="1" value="0">
+    <div class="tilt-help">Los extremos llevan el origen de la flecha hasta cerca de cada borde del overlay.</div>
+    <label class="tilt-label" for="model-toggle">
+      <span>Modelo del overlay</span><output id="model-value">Flecha</output>
+    </label>
+    <button id="model-toggle" type="button">Cambiar a joystick</button>
+    <button id="tilt-reset" type="button">Restablecer vista</button>
+  </section>
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="/obs-arrow-three.js">
+    (() => {
+      'use strict';
+      const canvas = document.getElementById('arrow');
+      const ctx = canvas.getContext('2d', { alpha: true });
+      const status = document.getElementById('status');
+      const token = location.hash.slice(1);
+      const debug = new URLSearchParams(location.search).get('debug') === '1';
+      const deadZone = 0.1;
+      const staleAfterMs = 2400;
+      let targetX = 0, targetY = 0, currentX = 0, currentY = 0;
+      let targetActive = false, lastPacketAt = 0, lastFrameAt = 0, pixelRatio = 1;
+
+      function setStatus(message) {
+        status.textContent = message;
+        status.hidden = !message;
+      }
+
+      function resize() {
+        pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+        const width = Math.max(1, Math.round(window.innerWidth * pixelRatio));
+        const height = Math.max(1, Math.round(window.innerHeight * pixelRatio));
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+      }
+
+      function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+
+      function acceptInput(data) {
+        if (!data || !Number.isFinite(data.x) || !Number.isFinite(data.y) ||
+            data.x < -1 || data.x > 1 || data.y < -1 || data.y > 1) return;
+        targetX = data.x;
+        targetY = data.y;
+        targetActive = data.active === true && Math.hypot(targetX, targetY) > deadZone;
+        lastPacketAt = performance.now();
+        if (targetActive) {
+          if (debug) setStatus('Recibiendo movimiento del mando');
+          else status.hidden = true;
+        } else {
+          setStatus(debug ? 'Overlay conectado · esperando el mando' : 'Esperando movimiento del mando');
+        }
+      }
+
+      function drawIdleMarker(width, height, minSide) {
+        const originX = width * 0.5;
+        const originY = height * 0.79;
+        ctx.save();
+        ctx.globalAlpha = 0.48;
+        ctx.strokeStyle = 'rgba(82, 219, 255, .82)';
+        ctx.fillStyle = 'rgba(8, 17, 29, .78)';
+        ctx.lineWidth = Math.max(2, minSide * 0.004);
+        ctx.beginPath();
+        ctx.ellipse(originX, originY + minSide * 0.014, minSide * 0.038, minSide * 0.013,
+          0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(originX, originY, minSide * 0.018, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(originX, originY - minSide * 0.025);
+        ctx.lineTo(originX, originY - minSide * 0.045);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawPerspectiveGround(width, height, minSide, active) {
+        const vanishingX = width * 0.5;
+        const vanishingY = height * 0.39;
+        const nearY = height * 0.84;
+        const farHalfWidth = minSide * 0.045;
+        const nearHalfWidth = Math.min(width * 0.38, minSide * 0.42);
+        const alpha = active ? 0.2 : 0.12;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(vanishingX - farHalfWidth, vanishingY);
+        ctx.lineTo(vanishingX + farHalfWidth, vanishingY);
+        ctx.lineTo(vanishingX + nearHalfWidth, nearY);
+        ctx.lineTo(vanishingX - nearHalfWidth, nearY);
+        ctx.closePath();
+        const floor = ctx.createLinearGradient(0, vanishingY, 0, nearY);
+        floor.addColorStop(0, `rgba(43, 177, 255, ${alpha * 0.08})`);
+        floor.addColorStop(1, `rgba(43, 177, 255, ${alpha * 0.42})`);
+        ctx.fillStyle = floor;
+        ctx.fill();
+
+        ctx.lineWidth = Math.max(1, minSide * 0.0015);
+        ctx.strokeStyle = `rgba(91, 220, 255, ${alpha})`;
+        for (let column = -3; column <= 3; column++) {
+          const side = column / 3;
+          ctx.beginPath();
+          ctx.moveTo(vanishingX + side * farHalfWidth, vanishingY);
+          ctx.lineTo(vanishingX + side * nearHalfWidth, nearY);
+          ctx.stroke();
+        }
+
+        for (const depth of [0.16, 0.31, 0.5, 0.72, 0.91]) {
+          const y = vanishingY + (nearY - vanishingY) * depth;
+          const halfWidth = farHalfWidth + (nearHalfWidth - farHalfWidth) * depth;
+          ctx.beginPath();
+          ctx.moveTo(vanishingX - halfWidth, y);
+          ctx.lineTo(vanishingX + halfWidth, y);
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      }
+
+      function project(worldX, worldY, originX, originY, scale) {
+        // Stronger depth compression makes the path read as movement across a 3D floor.
+        const perspective = clamp(1 / (1 + worldY / (scale * 1.35)), 0.55, 1.3);
+        return {
+          x: originX + worldX * perspective,
+          y: originY - worldY * 0.72 * perspective,
+          perspective
+        };
+      }
+
+      function traceArrow(points) {
+        ctx.beginPath();
+        ctx.moveTo(points.start.x, points.start.y);
+        ctx.quadraticCurveTo(points.control.x, points.control.y, points.tip.x, points.tip.y);
+      }
+
+      function drawArrowHead(tip, control, size, perspective) {
+        const dx = tip.x - control.x;
+        const dy = tip.y - control.y;
+        const angle = Math.atan2(dy, dx);
+        const back = size * 1.35 * perspective;
+        const half = size * 0.76 * perspective;
+        const baseX = tip.x - Math.cos(angle) * back;
+        const baseY = tip.y - Math.sin(angle) * back;
+        const wingX = Math.cos(angle + Math.PI / 2) * half;
+        const wingY = Math.sin(angle + Math.PI / 2) * half;
+
+        ctx.beginPath();
+        ctx.moveTo(tip.x, tip.y + size * 0.16);
+        ctx.lineTo(baseX + wingX, baseY + wingY + size * 0.16);
+        ctx.lineTo(baseX - wingX, baseY - wingY + size * 0.16);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(3, 15, 28, .58)';
+        ctx.fill();
+
+        const gradient = ctx.createLinearGradient(baseX, baseY, tip.x, tip.y);
+        gradient.addColorStop(0, '#458bff');
+        gradient.addColorStop(1, '#71f2ff');
+        ctx.beginPath();
+        ctx.moveTo(tip.x, tip.y);
+        ctx.lineTo(baseX + wingX, baseY + wingY);
+        ctx.lineTo(baseX - wingX, baseY - wingY);
+        ctx.closePath();
+        ctx.fillStyle = gradient;
+        ctx.shadowColor = 'rgba(65, 207, 255, .85)';
+        ctx.shadowBlur = size * 0.42;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      function render(now) {
+        resize();
+        const width = canvas.width / pixelRatio;
+        const height = canvas.height / pixelRatio;
+        const minSide = Math.min(width, height);
+        const dt = lastFrameAt ? Math.min(64, now - lastFrameAt) : 16;
+        lastFrameAt = now;
+        const blend = 1 - Math.exp(-dt / 90);
+        currentX += (targetX - currentX) * blend;
+        currentY += (targetY - currentY) * blend;
+
+        if (now - lastPacketAt > staleAfterMs) {
+          targetX = 0;
+          targetY = 0;
+          targetActive = false;
+        }
+
+        ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        ctx.clearRect(0, 0, width, height);
+        const magnitude = Math.min(1, Math.hypot(currentX, currentY));
+        const visible = targetActive || magnitude > deadZone;
+        const opacity = visible ? Math.min(1, magnitude * 1.5) : 0;
+
+        drawPerspectiveGround(width, height, minSide, visible);
+        if (!visible) drawIdleMarker(width, height, minSide);
+
+        if (opacity > 0.01 && magnitude > 0.001) {
+          ctx.save();
+          ctx.globalAlpha = opacity;
+          const originX = width * 0.5;
+          const originY = height * 0.79;
+          const length = minSide * (0.12 + 0.43 * magnitude);
+          const dx = currentX / magnitude;
+          const dy = currentY / magnitude;
+          const worldX = dx * length;
+          const worldY = dy * length;
+          const bend = length * 0.46;
+          const start = { x: originX, y: originY };
+          const control = project(worldX * 0.5 - dy * bend * 0.24,
+            worldY * 0.5 + Math.abs(dx) * bend,
+            originX, originY, minSide);
+          const tip = project(worldX, worldY, originX, originY, minSide);
+          const points = { start, control, tip };
+          const strokeWidth = Math.max(8, minSide * 0.018 * tip.perspective);
+
+          // Dark extrusion and ground shadow give the curved arrow its 3D depth.
+          ctx.save();
+          ctx.translate(0, minSide * 0.024);
+          traceArrow(points);
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = strokeWidth * 2.1;
+          ctx.strokeStyle = 'rgba(4, 15, 31, .64)';
+          ctx.shadowColor = 'rgba(0, 0, 0, .48)';
+          ctx.shadowBlur = minSide * 0.025;
+          ctx.stroke();
+          ctx.restore();
+
+          traceArrow(points);
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = strokeWidth;
+          const shaft = ctx.createLinearGradient(start.x, start.y, tip.x, tip.y);
+          shaft.addColorStop(0, '#478cff');
+          shaft.addColorStop(0.55, '#4fcaff');
+          shaft.addColorStop(1, '#8affff');
+          ctx.strokeStyle = shaft;
+          ctx.shadowColor = 'rgba(73, 213, 255, .92)';
+          ctx.shadowBlur = minSide * 0.045;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+          drawArrowHead(tip, control, minSide * 0.065, tip.perspective);
+
+          ctx.beginPath();
+          ctx.ellipse(originX, originY + minSide * 0.014, minSide * 0.038, minSide * 0.013,
+            0, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(31, 177, 255, .24)';
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(originX, originY, minSide * 0.018, 0, Math.PI * 2);
+          ctx.fillStyle = '#52dbff';
+          ctx.shadowColor = '#52dbff';
+          ctx.shadowBlur = minSide * 0.045;
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(originX, originY, minSide * 0.007, 0, Math.PI * 2);
+          ctx.fillStyle = '#efffff';
+          ctx.fill();
+          ctx.restore();
+        }
+
+        requestAnimationFrame(render);
+      }
+
+      if (!/^[a-f0-9]{64}$/.test(token)) {
+        setStatus('Copia el enlace de GameJoy y cambia /obs/map por /obs/arrow');
+      } else if (typeof io !== 'function') {
+        setStatus('No se pudo conectar con el servidor de GameJoy');
+      } else {
+        setStatus('Conectando con GameJoy…');
+        const socket = io({ autoConnect: false, reconnection: true });
+        socket.on('connect', () => {
+          setStatus('Esperando controles…');
+          socket.emit('gamejoy:obs-subscribe', { token });
+        });
+        socket.on('gamejoy:obs-ready', () => setStatus('Overlay conectado'));
+        socket.on('gamejoy:obs-input', acceptInput);
+        socket.on('gamejoy:obs-stopped', () => {
+          acceptInput({ x: 0, y: 0, active: false });
+          setStatus('GameJoy dejó de compartir');
+        });
+        socket.on('gamejoy:obs-error', data => setStatus(data?.message || 'Overlay no disponible'));
+        socket.on('disconnect', () => {
+          acceptInput({ x: 0, y: 0, active: false });
+          setStatus('Reconectando con GameJoy…');
+        });
+        socket.on('connect_error', () => setStatus('No se pudo conectar con el servidor'));
+        socket.connect();
+      }
+
+      window.addEventListener('resize', resize, { passive: true });
+      requestAnimationFrame(render);
+    })();
+  </script>
+</body>
+</html>
