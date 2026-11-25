@@ -8,6 +8,7 @@ const logoutFloating = document.getElementById('obs-logout-floating');
 const HUD_LOGIN_URL = 'https://moneymaze.es/apps/gamejoy/obs/hud_menu.php';
 
 let arrowToken = null;
+let buttonsToken = null;
 let directToken = null;
 let socket = null;
 let socketToken = null;
@@ -41,6 +42,7 @@ async function logout() {
   socket = null;
   socketToken = null;
   arrowToken = null;
+  buttonsToken = null;
   directToken = null;
   streamId = null;
   directFrame.classList.remove('active');
@@ -59,13 +61,23 @@ function publish(data) {
 
 function resetInput() {
   publish({ type: 'controls:move', x: 0, y: 0 });
+  for (const action of ['cross', 'circle', 'square', 'triangle']) {
+    publish({ type: 'controls:remote-action', action, pressed: false });
+  }
+}
+
+function normalizeButton(button) {
+  const value = String(button || '').toUpperCase();
+  return ({ A: 'cross', B: 'circle', X: 'square', Y: 'triangle', CROSS: 'cross',
+    CIRCLE: 'circle', SQUARE: 'square', TRIANGLE: 'triangle' })[value] || value.toLowerCase();
 }
 
 function connectSocket() {
-  if (!arrowToken || typeof window.io !== 'function') return;
-  if (socket && socketToken === arrowToken) return;
+  const token = arrowToken || buttonsToken;
+  if (!token || typeof window.io !== 'function') return;
+  if (socket && socketToken === token) return;
   if (socket) socket.disconnect();
-  socketToken = arrowToken;
+  socketToken = token;
   socket = window.io({ autoConnect: false, reconnection: true });
   socket.on('connect', () => {
     socket.emit('gamejoy:obs-subscribe', { token: socketToken });
@@ -74,6 +86,17 @@ function connectSocket() {
   socket.on('gamejoy:obs-input', data => {
     if (Number.isFinite(data?.x) && Number.isFinite(data?.y)) {
       publish({ type: 'controls:move', x: data.x, y: data.y });
+    }
+  });
+  socket.on('gamejoy:obs-buttons', data => {
+    const pressed = new Set(Array.isArray(data?.buttons) ? data.buttons.map(normalizeButton) : []);
+    for (const action of ['cross', 'circle', 'square', 'triangle']) {
+      publish({ type: 'controls:remote-action', action, pressed: pressed.has(action) });
+    }
+  });
+  socket.on('gamejoy:obs-button', data => {
+    if (typeof data?.button === 'string' && typeof data?.pressed === 'boolean') {
+      publish({ type: 'controls:remote-action', action: normalizeButton(data.button), pressed: data.pressed });
     }
   });
   socket.on('gamejoy:obs-stopped', resetInput);
@@ -117,6 +140,11 @@ window.GameJoyOverlay = { resetInput };
 
 waitForObsToken('arrow', message => setStatus(message)).then(access => {
   arrowToken = access.token;
+  connectSocket();
+});
+
+waitForObsToken('buttons', () => {}).then(access => {
+  buttonsToken = access.token;
   connectSocket();
 });
 
