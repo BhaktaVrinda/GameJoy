@@ -7,6 +7,7 @@ const directFrame = document.getElementById('direct-view');
 const status = document.getElementById('overlay-status');
 const authPanel = document.getElementById('obs-auth');
 const authMessage = document.getElementById('obs-auth-message');
+const logoutFloating = document.getElementById('obs-logout-floating');
 const HUD_LOGIN_URL = 'https://moneymaze.es/apps/gamejoy/obs/hud_menu.php';
 
 let mapToken = null;
@@ -35,12 +36,18 @@ window.addEventListener('gamejoy:obs-auth-required', event => showAuthPanel(
 document.getElementById('obs-auth-login').addEventListener('click', () => {
   window.location.href = HUD_LOGIN_URL;
 });
-document.getElementById('obs-auth-logout').addEventListener('click', async () => {
+async function logoutObs() {
+  if (logoutFloating) {
+    logoutFloating.disabled = true;
+    logoutFloating.textContent = 'Cerrando…';
+  }
   try {
     await fetch('/obs/session/logout', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
   } catch {}
-  showAuthPanel('Sesión cerrada. Pulsa “Abrir formulario GameJoy” para conectar OBS otra vez.');
-});
+  window.location.href = HUD_LOGIN_URL;
+}
+document.getElementById('obs-auth-logout').addEventListener('click', logoutObs);
+logoutFloating?.addEventListener('click', logoutObs);
 
 function publish(data) {
   window.GameJoyBus?.post(data);

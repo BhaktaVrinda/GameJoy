@@ -3,7 +3,8 @@
   const frames = Object.fromEntries([
     ['f', 'arrow-settings-view'], ['m', 'map-settings-view'],
     ['b', 'button-settings-view'], ['o', 'mission-settings-view']
-  ].map(([key, id]) => [key, document.getElementById(id)]));
+  ].map(([key, id]) => [key, document.getElementById(id)])
+    .filter(([, frame]) => frame));
   const states = new Map();
   let topLayer = 10;
   for (const [key, frame] of Object.entries(frames)) {

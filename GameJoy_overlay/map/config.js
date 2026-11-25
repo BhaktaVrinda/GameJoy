@@ -7,7 +7,10 @@
   const longitude = Number(params.get('lng'));
   let center = params.has('lat') && params.has('lng') && Number.isFinite(latitude) && Math.abs(latitude) <= 90 &&
     Number.isFinite(longitude) && Math.abs(longitude) <= 180 ? [latitude, longitude] : [40.416775, -3.70379];
-  let zoom = 16, distance = 0, angle = 0, mapSize = 21;
+  let zoom = 21, distance = 0, angle = 0, mapSize = 21;
+  let mapReady = false;
+  let hasLiveCenter = params.has('lat') && params.has('lng') && Number.isFinite(latitude) &&
+    Math.abs(latitude) <= 90 && Number.isFinite(longitude) && Math.abs(longitude) <= 180;
   try {
     const saved = Number(localStorage.getItem('gamejoy:map-zoom'));
     if (Number.isInteger(saved) && saved >= 3 && saved <= 21) zoom = saved;
@@ -25,7 +28,10 @@
     frame.contentWindow?.postMessage({type:'map:config',config:{lat:center[0],lng:center[1],zoom,distance,angle,refresh}}, '*');
   }
   function receive(data) {
-    if (data?.type === 'map:ready') sync(true);
+    if (data?.type === 'map:ready') {
+      mapReady = true;
+      if (hasLiveCenter) sync(true);
+    }
     if (data?.type === 'settings:map-config') {
       if (Number.isInteger(data.zoom)) zoom = data.zoom;
       if (Number.isFinite(data.distance)) distance = data.distance;
@@ -34,23 +40,26 @@
         localStorage.setItem('gamejoy:map-zoom', String(zoom));
         localStorage.setItem('gamejoy:map-dot-position', JSON.stringify({distance,angle}));
       } catch {}
-      sync(Boolean(data.refresh));
+      if (mapReady && hasLiveCenter) sync(Boolean(data.refresh));
     }
-    if (data?.type === 'settings:map-refresh') sync(true);
+    if (data?.type === 'settings:map-refresh' && mapReady && hasLiveCenter) sync(true);
   }
   window.GameJoyMap = {
     setCenter(position) {
       if (Number.isFinite(position?.lat) && Math.abs(position.lat) <= 90 &&
           Number.isFinite(position?.lng) && Math.abs(position.lng) <= 180) {
         center = [position.lat, position.lng];
-        sync();
+        hasLiveCenter = true;
+        // El mapa decide cuándo recargar Google Maps. Aquí enviamos cada
+        // posición para que aplique el umbral y la cola del mapa original.
+        if (mapReady) sync();
       }
     },
-    refresh() {sync(true);}
+    refresh() { if (mapReady && hasLiveCenter) sync(true); }
   };
   window.addEventListener('message', event => {
     if (event.source === frame.contentWindow || event.source === settings?.contentWindow) receive(event.data);
   });
   window.GameJoyBus?.on(receive);
-  sync();
+  if (mapReady && hasLiveCenter) sync();
 }());
