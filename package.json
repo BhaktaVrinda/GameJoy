@@ -4,7 +4,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test --test-concurrency=1 gamejoy-sessions.test.js obs-session.test.js"
+    "test": "node --test gamejoy-sessions.test.js"
   },
   "keywords": [
     "gamejoy",

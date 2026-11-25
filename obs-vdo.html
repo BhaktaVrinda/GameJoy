@@ -18,12 +18,10 @@
 <body>
   <div id="viewer"></div>
   <div id="status" role="status">Conectando con GameJoy…</div>
-  <script type="module">
-    import { waitForObsToken } from '/obs-session-token.js';
+  <script>
     const viewer = document.getElementById('viewer');
     const status = document.getElementById('status');
-    const obsAccess = await waitForObsToken('direct', message => { status.textContent = message; });
-    const token = obsAccess.token;
+    const token = location.hash.slice(1);
     let streamId = null;
     let frame = null;
 
@@ -82,7 +80,7 @@
     }
 
     if (/^[0-9a-f]{64}$/.test(token)) update();
-    else showMessage(obsAccess.message);
+    else showMessage('Copia el enlace fijo para OBS desde GameJoy.');
   </script>
 </body>
 </html>

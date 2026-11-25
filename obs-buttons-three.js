@@ -1,10 +1,8 @@
 import * as THREE from '/vendor/three/three.module.js';
-import { waitForObsToken } from '/obs-session-token.js';
 
 const canvas = document.getElementById('buttons');
 const status = document.getElementById('status');
-const obsAccess = await waitForObsToken('buttons', message => { status.textContent = message; });
-const token = obsAccess.token;
+const token = location.hash.slice(1);
 const debug = new URLSearchParams(location.search).get('debug') === '1';
 const DEFAULT_VIEW_ELEVATION = 12;
 const MIN_VIEW_ELEVATION = 5;
@@ -365,7 +363,7 @@ function render(now) {
 window.addEventListener('resize', resize, { passive: true });
 
 if (!/^[a-f0-9]{64}$/.test(token)) {
-  setStatus(obsAccess.message);
+  setStatus('Usa el enlace OBS de GameJoy con su token');
 } else if (typeof io !== 'function') {
   setStatus('No se pudo conectar con GameJoy');
 } else {

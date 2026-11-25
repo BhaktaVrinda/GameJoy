@@ -46,13 +46,11 @@
       </svg>
     </div>
   </main>
-  <script type="module">
-    import { waitForObsToken } from '/obs-session-token.js';
+  <script>
     const maps = document.getElementById('maps');
     const status = document.getElementById('status');
     const directionBeam = document.getElementById('direction-beam');
-    const obsAccess = await waitForObsToken('map', message => { status.textContent = message; });
-    const token = obsAccess.token;
+    const token = location.hash.slice(1);
     const zoom = 21;
     const recenterDistanceMeters = 14;
     const minMapReloadIntervalMs = 5000;
@@ -246,7 +244,7 @@
       }
     }
     if (/^[0-9a-f]{64}$/.test(token)) update();
-    else hide(obsAccess.message);
+    else hide('Copia el enlace del mapa desde GameJoy');
   </script>
 </body>
 </html>
