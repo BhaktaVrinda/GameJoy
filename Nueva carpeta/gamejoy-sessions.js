@@ -1,10 +1,90 @@
 'use strict';
 const crypto = require('node:crypto');
+const https = require('node:https');
 const path = require('node:path');
+const { URL, URLSearchParams } = require('node:url');
+
+const DEFAULT_PERMISSION_ENDPOINT = 'https://moneymaze.es/apps/gamejoy/comando/comprobar_permiso_control.php';
+const PERMISSION_TIMEOUT_MS = 5000;
+const MAX_PERMISSION_RESPONSE_BYTES = 4096;
+
+function checkPermissionForChannel(channelHandle) {
+    const handle = typeof channelHandle === 'string' ? channelHandle.trim() : '';
+    if (!/^@[\w.-]{1,79}$/.test(handle)) return Promise.resolve(false);
+
+    let endpoint;
+    try {
+        const configuredEndpoint = process.env.GAMEJOY_PERMISSION_ENDPOINT?.trim() || DEFAULT_PERMISSION_ENDPOINT;
+        endpoint = new URL(configuredEndpoint);
+        if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password) return Promise.resolve(false);
+    } catch {
+        return Promise.resolve(false);
+    }
+
+    const method = (process.env.GAMEJOY_PERMISSION_METHOD || 'GET').trim().toUpperCase();
+    if (!['GET', 'POST'].includes(method)) return Promise.resolve(false);
+    const form = new URLSearchParams({ channel_handle: handle }).toString();
+    if (method === 'GET') endpoint.searchParams.set('channel_handle', handle);
+    const requestBody = method === 'POST' ? form : '';
+    const headers = {
+        Accept: 'application/json',
+        'Cache-Control': 'no-cache'
+    };
+    if (requestBody) {
+        headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        headers['Content-Length'] = Buffer.byteLength(requestBody);
+    }
+
+    return new Promise(resolve => {
+        let settled = false;
+        let responseBody = '';
+        let responseBytes = 0;
+        const finish = allowed => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            resolve(allowed);
+        };
+        const request = https.request(endpoint, { method, headers }, response => {
+            if (response.statusCode !== 200) {
+                response.resume();
+                finish(false);
+                return;
+            }
+            response.setEncoding('utf8');
+            response.on('data', chunk => {
+                responseBytes += Buffer.byteLength(chunk, 'utf8');
+                if (responseBytes > MAX_PERMISSION_RESPONSE_BYTES) {
+                    response.destroy();
+                    finish(false);
+                    return;
+                }
+                responseBody += chunk;
+            });
+            response.on('end', () => {
+                try {
+                    const result = JSON.parse(responseBody);
+                    finish(result?.permitido === true);
+                } catch {
+                    finish(false);
+                }
+            });
+            response.on('error', () => finish(false));
+        });
+        const timeout = setTimeout(() => request.destroy(new Error('Permission request timed out')), PERMISSION_TIMEOUT_MS);
+        timeout.unref?.();
+        request.on('error', () => finish(false));
+        if (requestBody) request.write(requestBody);
+        request.end();
+    });
+}
 
 // Separate from the legacy PC/game protocol. Profiles are display labels;
 // routing and ownership always use the server-owned socket, never a supplied user id.
-module.exports = function attachGameJoySessions(io, app) {
+module.exports = function attachGameJoySessions(io, app, options = {}) {
+    const checkControlPermission = typeof options.checkControlPermission === 'function'
+        ? options.checkControlPermission
+        : checkPermissionForChannel;
     const players = new Map();
     const maps = new Map();
     const obsVdoLinks = new Map();
@@ -166,7 +246,8 @@ module.exports = function attachGameJoySessions(io, app) {
             if (old) { unpublishMap(old, true); unpublishObsVdoLink(old); unpair(old); }
             const p = { id: socket.id, role: data.role, userId: accountUserId(data.userId), name: label(data.name, 'Jugador'),
                 channel: label(data.channel, ''), avatar: avatarUrl(data.avatar), sharing: false, peer: null, lastFrame: null, vdoStreamId: null,
-                mapToken: null, obsVdoToken: null, obsInputState: null, obsButtons: new Set(), lastInputAt: 0, lastLocationAt: 0, lastSelectAt: 0 };
+                mapToken: null, obsVdoToken: null, obsInputState: null, obsButtons: new Set(), lastInputAt: 0, lastLocationAt: 0,
+                lastSelectAt: 0, selectAttempt: 0 };
             players.set(socket.id, p);
             const userOverlayToken = p.role === 'player' ? stableOverlayToken(p.userId) : null;
             if (userOverlayToken) {
@@ -268,18 +349,37 @@ module.exports = function attachGameJoySessions(io, app) {
             maps.set(token, p);
             if (typeof ack === 'function') ack({ success: true, token });
         });
-        socket.on('gamejoy:select', data => {
+        socket.on('gamejoy:select', async data => {
             const p = players.get(socket.id);
             if (!p || p.role !== 'controller') return;
             const id = typeof data?.id === 'string' ? data.id : '';
-            if (!id) { unpair(p); list(); return; }
-            const target = players.get(id);
-            if (p.peer === id && target?.peer === p.id) return;
+            if (!id) { p.selectAttempt += 1; unpair(p); list(); return; }
             if (Date.now() - p.lastSelectAt < 300) return;
             p.lastSelectAt = Date.now();
+            const attempt = ++p.selectAttempt;
+            const target = players.get(id);
+            if (p.peer === id && target?.peer === p.id) return;
             if (!target || target.role !== 'player' || (!target.sharing && typeof target.vdoStreamId !== 'string') || target.peer) {
                 send(p.id, 'error', { message: 'Ese jugador ya no está disponible' }); return;
             }
+
+            let permitted = false;
+            try {
+                permitted = await checkControlPermission(p.channel) === true;
+            } catch {
+                permitted = false;
+            }
+            if (players.get(socket.id) !== p || p.selectAttempt !== attempt) return;
+            if (!permitted) {
+                send(p.id, 'error', { message: 'No tienes permiso para controlar a este jugador' });
+                return;
+            }
+            if (players.get(id) !== target || target.role !== 'player' ||
+                (!target.sharing && typeof target.vdoStreamId !== 'string') || target.peer) {
+                send(p.id, 'error', { message: 'Ese jugador ya no está disponible' });
+                return;
+            }
+
             unpair(p);
             p.peer = target.id; target.peer = p.id;
             clearObsInput(target);
@@ -294,7 +394,11 @@ module.exports = function attachGameJoySessions(io, app) {
         });
         socket.on('gamejoy:leave', () => {
             const p = players.get(socket.id);
-            if (p) { unpair(p); list(); }
+            if (p) {
+                if (p.role === 'controller') p.selectAttempt += 1;
+                unpair(p);
+                list();
+            }
         });
         socket.on('gamejoy:input', data => {
             const p = players.get(socket.id), target = players.get(p?.peer);
