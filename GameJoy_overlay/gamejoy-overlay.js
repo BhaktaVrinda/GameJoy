@@ -5,6 +5,9 @@ const classicArrow = document.getElementById('classic-arrow');
 const mapFrame = document.getElementById('map-module');
 const directFrame = document.getElementById('direct-view');
 const status = document.getElementById('overlay-status');
+const authPanel = document.getElementById('obs-auth');
+const authMessage = document.getElementById('obs-auth-message');
+const HUD_LOGIN_URL = 'https://moneymaze.es/apps/gamejoy/obs/hud_menu.php';
 
 let mapToken = null;
 let arrowToken = null;
@@ -19,6 +22,25 @@ function setStatus(message) {
   status.textContent = message || '';
   status.hidden = !message;
 }
+
+function showAuthPanel(message = 'La sesión de OBS no está abierta.') {
+  authMessage.textContent = message;
+  authPanel.hidden = false;
+  setStatus('');
+}
+
+window.addEventListener('gamejoy:obs-auth-required', event => showAuthPanel(
+  event.detail?.message || 'OBS necesita iniciar sesión para recuperar mapa, flecha, botones y directo.'
+));
+document.getElementById('obs-auth-login').addEventListener('click', () => {
+  window.location.href = HUD_LOGIN_URL;
+});
+document.getElementById('obs-auth-logout').addEventListener('click', async () => {
+  try {
+    await fetch('/obs/session/logout', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
+  } catch {}
+  showAuthPanel('Sesión cerrada. Pulsa “Iniciar sesión” para conectar OBS otra vez.');
+});
 
 function publish(data) {
   window.GameJoyBus?.post(data);

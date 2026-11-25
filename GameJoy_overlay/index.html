@@ -25,6 +25,14 @@
       background: #08111dcc; color: #d9f8ff; font: 600 13px system-ui, sans-serif;
       text-align: center; white-space: nowrap; }
     #overlay-status[hidden] { display: none; }
+    #obs-auth { position: absolute; z-index: 30; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      width: min(92%, 420px); padding: 20px; border: 1px solid #59e1ff66; border-radius: 16px;
+      background: #08111df2; color: #eafaff; box-shadow: 0 12px 42px #0009;
+      font: 500 15px system-ui, sans-serif; text-align: center; }
+    #obs-auth[hidden] { display: none; }
+    #obs-auth p { margin: 0 0 14px; line-height: 1.45; }
+    #obs-auth button { margin: 3px; padding: 8px 13px; border: 1px solid #59e1ff88;
+      border-radius: 9px; background: #123b55; color: #fff; font: inherit; cursor: pointer; }
     body.transparent #photo-background { display: none; }
   </style>
 </head>
@@ -40,6 +48,11 @@
     <iframe id="classic-arrow" class="module" title="Flecha clásica de GameJoy" hidden></iframe>
     <canvas id="buttons-3d" aria-label="Botones 3D de GameJoy"></canvas>
     <div id="overlay-status" role="status" hidden></div>
+    <section id="obs-auth" role="dialog" aria-live="polite" hidden>
+      <p id="obs-auth-message">La sesión de OBS no está abierta.</p>
+      <button id="obs-auth-login" type="button">Iniciar sesión</button>
+      <button id="obs-auth-logout" type="button">Cerrar sesión</button>
+    </section>
   </main>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/obs/overlay-assets/settings/bus.js"></script>
