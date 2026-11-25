@@ -1,8 +1,10 @@
 import * as THREE from '/vendor/three/three.module.js';
+import { waitForObsToken } from '/obs-session-token.js';
 
 const canvas = document.getElementById('arrow');
 const status = document.getElementById('status');
-const token = location.hash.slice(1);
+const obsAccess = await waitForObsToken('arrow', message => { status.textContent = message; });
+const token = obsAccess.token;
 const debug = new URLSearchParams(location.search).get('debug') === '1';
 const deadZone = 0.1;
 const staleAfterMs = 2400;
@@ -485,7 +487,7 @@ function render(now) {
 window.addEventListener('resize', resize, { passive: true });
 
 if (!/^[a-f0-9]{64}$/.test(token)) {
-  setStatus('Copia el enlace de GameJoy y cambia /obs/map por /obs/arrow');
+  setStatus(obsAccess.message);
 } else if (typeof io !== 'function') {
   setStatus('No se pudo conectar con el servidor de GameJoy');
 } else {

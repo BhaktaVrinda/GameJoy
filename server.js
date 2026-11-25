@@ -12,6 +12,14 @@ app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules', 'th
 }));
 app.get('/obs-arrow-three.js', (_req, res) => res.sendFile(path.join(__dirname, 'obs-arrow-three.js')));
 app.get('/obs-buttons-three.js', (_req, res) => res.sendFile(path.join(__dirname, 'obs-buttons-three.js')));
+app.get('/obs-session-token.js', (_req, res) => res.type('js').sendFile(path.join(__dirname, 'obs-session-token.js')));
+app.use('/obs/overlay-assets', express.static(path.join(__dirname, 'GameJoy_overlay'), {
+    maxAge: '1h'
+}));
+app.get(['/obs/overlay', '/obs/overlay/'], (_req, res) =>
+    res.sendFile(path.join(__dirname, 'GameJoy_overlay', 'index.html'))
+);
+require('./obs-session')(app);
 
 const server = http.createServer(app);
 const io = new Server(server, {

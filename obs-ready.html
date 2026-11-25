@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>GameJoy · OBS conectado</title>
+  <style>
+    :root { color-scheme: dark; font: 16px system-ui, sans-serif; background: #171a21; color: #fff; }
+    body { margin: 0; padding: 32px; }
+    main { max-width: 560px; margin: 48px auto; }
+    h1 { font-size: 24px; }
+    p { color: #9dafb9; line-height: 1.5; }
+    a { color: #66c0f4; }
+    li { margin: 14px 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>GameJoy en OBS</h1>
+    <p id="status" role="status">Comprobando sesión…</p>
+    <ul id="overlays"></ul>
+    <p><a href="https://moneymaze.es/apps/gamejoy/obs/hud_menu.php">Volver a GameJoy</a></p>
+    <p><a href="/obs/overlay">Abrir overlay unificado</a></p>
+  </main>
+  <script>
+    const overlayUrl = new URL('/obs/overlay', location.origin).href;
+    if (new URLSearchParams(location.search).has('error')) {
+      document.getElementById('status').textContent =
+        'No se pudo conectar OBS con GameJoy. Vuelve al formulario e inténtalo de nuevo.';
+    } else fetch('/obs/session', { credentials: 'same-origin', cache: 'no-store' })
+      .then(async response => {
+        if (!response.ok) throw new Error();
+        const session = await response.json();
+         document.getElementById('status').textContent =
+           `Sesión abierta para ${session.username}. Usa esta única fuente de navegador en OBS:`;
+        const list = document.getElementById('overlays');
+        const item = document.createElement('li');
+        const link = document.createElement('a');
+        link.href = overlayUrl;
+        link.textContent = overlayUrl;
+        item.append(link);
+        list.append(item);
+        if (!Object.values(session.available || {}).some(Boolean)) {
+          document.getElementById('status').textContent +=
+            ' Todavía no hay tokens enviados desde GameJoy; vuelve a conectar cuando los envíes.';
+        }
+      })
+      .catch(() => {
+        document.getElementById('status').textContent =
+          'No se pudo abrir la sesión de OBS. Vuelve al formulario de GameJoy e inicia sesión de nuevo.';
+      });
+  </script>
+</body>
+</html>
