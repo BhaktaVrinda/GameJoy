@@ -40,9 +40,9 @@
         localStorage.setItem('gamejoy:map-zoom', String(zoom));
         localStorage.setItem('gamejoy:map-dot-position', JSON.stringify({distance,angle}));
       } catch {}
-      if (mapReady && hasLiveCenter) sync(Boolean(data.refresh));
+      if (hasLiveCenter) sync(Boolean(data.refresh));
     }
-    if (data?.type === 'settings:map-refresh' && mapReady && hasLiveCenter) sync(true);
+    if (data?.type === 'settings:map-refresh' && hasLiveCenter) sync(true);
   }
   window.GameJoyMap = {
     setCenter(position) {
@@ -52,14 +52,14 @@
         hasLiveCenter = true;
         // El mapa decide cuándo recargar Google Maps. Aquí enviamos cada
         // posición para que aplique el umbral y la cola del mapa original.
-        if (mapReady) sync();
+        sync();
       }
     },
-    refresh() { if (mapReady && hasLiveCenter) sync(true); }
+    refresh() { if (hasLiveCenter) sync(true); }
   };
   window.addEventListener('message', event => {
     if (event.source === frame.contentWindow || event.source === settings?.contentWindow) receive(event.data);
   });
   window.GameJoyBus?.on(receive);
-  if (mapReady && hasLiveCenter) sync();
+  if (hasLiveCenter) sync();
 }());
