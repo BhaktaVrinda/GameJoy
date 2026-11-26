@@ -12,12 +12,11 @@
     body { display: grid; place-items: center; }
     main { position: relative; width: min(100vw, 177.7778vh); aspect-ratio: 16 / 9;
       container-type: inline-size; overflow: hidden; isolation: isolate; }
-    #photo-background, #direct-view, #map-module, #arrow-module { position: absolute; inset: 0;
+    #photo-background, #direct-view, #arrow-module { position: absolute; inset: 0;
       width: 100%; height: 100%; border: 0; }
     #photo-background { z-index: -2; background: center / 100% 100% no-repeat url("Imagen/madrid-calle-completa.webp"); }
     #direct-view { z-index: -1; pointer-events: none; display: none; background: #000; }
     #direct-view.active { display: block; }
-    #map-module { z-index: 1; pointer-events: auto; }
     #arrow-module { z-index: 2; pointer-events: auto; }
     #buttons-3d { position: absolute; right: 3.6%; bottom: 5.4%; width: 14%; aspect-ratio: 1;
       z-index: 3; display: block; pointer-events: none; }
@@ -47,8 +46,6 @@
     <iframe id="direct-view" title="Directo de GameJoy"
       allow="autoplay; fullscreen; microphone; camera; display-capture"
       allowfullscreen referrerpolicy="strict-origin"></iframe>
-    <iframe id="map-module" title="Mapa de GameJoy"
-      src="/obs/overlay-assets/map/index.html?mode=view&v=map-token-2"></iframe>
     <iframe id="arrow-module" title="Flecha nueva de GameJoy"
       src="/obs/overlay-assets/arrow/index.html?v=arrow-only-1"></iframe>
     <canvas id="buttons-3d" aria-label="Botones 3D de GameJoy"></canvas>

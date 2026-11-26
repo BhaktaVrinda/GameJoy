@@ -1,7 +1,6 @@
 import { waitForObsToken } from '/obs-session-token.js';
 
 const directFrame = document.getElementById('direct-view');
-const mapFrame = document.getElementById('map-module');
 const status = document.getElementById('overlay-status');
 const authPanel = document.getElementById('obs-auth');
 const authMessage = document.getElementById('obs-auth-message');
@@ -9,7 +8,6 @@ const logoutFloating = document.getElementById('obs-logout-floating');
 const HUD_LOGIN_URL = 'https://moneymaze.es/apps/gamejoy/obs/hud_menu.php';
 
 let arrowToken = null;
-let mapToken = null;
 let buttonsToken = null;
 let directToken = null;
 let socket = null;
@@ -44,7 +42,6 @@ async function logout() {
   socket = null;
   socketToken = null;
   arrowToken = null;
-  mapToken = null;
   buttonsToken = null;
   directToken = null;
   streamId = null;
@@ -76,7 +73,7 @@ function normalizeButton(button) {
 }
 
 function connectSocket() {
-  const token = mapToken || arrowToken || buttonsToken;
+  const token = arrowToken || buttonsToken;
   if (!token || typeof window.io !== 'function') return;
   if (socket && socketToken === token) return;
   if (socket) socket.disconnect();
@@ -139,38 +136,7 @@ async function pollDirect() {
   }
 }
 
-async function pollMap() {
-  if (!mapToken || !mapFrame) return;
-  const abort = new AbortController();
-  const deadline = setTimeout(() => abort.abort(), 3500);
-  try {
-    const response = await fetch('/obs/position', {
-      headers: { Authorization: 'Bearer ' + mapToken },
-      cache: 'no-store',
-      signal: abort.signal
-    });
-    if (response.status === 200) {
-      const point = await response.json();
-      mapFrame.contentWindow?.GameJoyMap?.setCenter({
-        lat: point.latitude,
-        lng: point.longitude,
-        heading: point.heading
-      });
-    }
-  } catch {}
-  finally {
-    clearTimeout(deadline);
-    setTimeout(pollMap, 1000);
-  }
-}
-
 window.GameJoyOverlay = { resetInput };
-
-waitForObsToken('map', message => setStatus(message)).then(access => {
-  mapToken = access.token;
-  connectSocket();
-  pollMap();
-});
 
 waitForObsToken('arrow', message => setStatus(message)).then(access => {
   arrowToken = access.token;
