@@ -116,7 +116,9 @@ function move(x,y){
   returnFrame=0;
   const limit=Math.max(1,Math.hypot(x,y));
   x/=limit;
-  y/=limit;
+  // El joystick de la app usa Y positivo hacia abajo; la flecha usa Y
+  // positivo hacia arriba. Invertimos solo este eje para que coincidan.
+  y=-y/limit;
   targetX=x;
   targetY=y;
   const direction=Math.hypot(x,y)>0.04 ? Math.atan2(x,-y) : 0;

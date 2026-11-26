@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GameJoy · Mapa</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:transparent;color:#f0faff;font-family:Arial,Helvetica,sans-serif}
+body{display:grid;place-items:center}main{position:relative;width:min(100vw,177.7778vh);height:min(56.25vw,100vh);aspect-ratio:16/9;container-type:inline-size;overflow:hidden}
+iframe{position:absolute;border:0;background:transparent}#map-shell{position:absolute;z-index:6;left:2.5%;top:4.5%;width:21%;aspect-ratio:1;border:.22cqw solid #2bc8ee;border-radius:50%;overflow:hidden;background:#e5e9e3;box-shadow:0 0 0 .35cqw #071d37,0 0 1.2cqw #00baff99;cursor:grab;touch-action:none}
+#map-shell.dragging{cursor:grabbing}#map-view{inset:0;width:100%;height:100%;pointer-events:none}.settings-frame{z-index:10;top:4.5%;left:50%;transform:translateX(-50%);width:145px;height:43px;overflow:hidden}
+body.view-only .settings-frame{display:none}
+</style><main data-settings-key="map" aria-label="Módulo independiente de mapa">
+<div id="map-shell"><iframe id="map-view" title="Minimapa" src="view.html?v=original-map-3"></iframe></div>
+<iframe class="settings-frame" id="map-settings-view" title="Ajustes del mapa" src="settings.html"></iframe>
+</main>
+<script>if(new URLSearchParams(location.search).get('mode')==='view')document.body.classList.add('view-only');</script>
+<script src="../settings/bus.js"></script><script src="../settings/standalone-frame.js"></script><script src="config.js?v=original-map-3"></script><script src="drag.js"></script>
+</html>
