@@ -153,7 +153,8 @@ async function pollMap() {
       const point = await response.json();
       mapFrame.contentWindow?.GameJoyMap?.setCenter({
         lat: point.latitude,
-        lng: point.longitude
+        lng: point.longitude,
+        heading: point.heading
       });
     }
   } catch {}

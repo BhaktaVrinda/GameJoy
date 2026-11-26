@@ -2,6 +2,7 @@
   const maps=document.querySelector('.map-google');
   const placeholder=maps?.querySelector('iframe');
   const dot=document.querySelector('.map-location-dot');
+  const directionBeam=document.getElementById('map-direction-beam');
   if(!maps||!dot)return;
 
   // Misma estrategia que el mapa original: no se recarga por cada lectura
@@ -16,6 +17,7 @@
   let retryTimer=null;
   let queuedPoint=null;
   let lastMapRequestAt=0;
+  let heading=null;
 
   function distanceMeters(a,b){
     const north=(b.lat-a.lat)*111320;
@@ -107,6 +109,11 @@
     const radius=(Number.isFinite(data.distance)?data.distance:0)/2;
     dot.style.left=(50+Math.sin(angle)*radius)+'%';
     dot.style.top=(50-Math.cos(angle)*radius)+'%';
+    if (directionBeam) {
+      heading=Number.isFinite(data.heading) ? ((data.heading % 360) + 360) % 360 : null;
+      directionBeam.style.display=heading===null ? 'none' : 'block';
+      if (heading!==null) directionBeam.setAttribute('transform','rotate('+heading+' 100 100)');
+    }
     const point={lat:data.lat,lng:data.lng,zoom:Number.isFinite(data.zoom)?data.zoom:zoom};
     if(data.refresh){
       queuedPoint=null;

@@ -10,11 +10,24 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
   border: 3px solid white; border-radius: 50%; background: #1a73e8;
   box-shadow: 0 0 0 9px #1a73e844, 0 2px 5px #0007; pointer-events: none; }
 body.google-ready .map-location-dot { display: block; }
+.map-direction-indicator { position: absolute; z-index: 1; inset: 0; display: none;
+  width: 100%; height: 100%; pointer-events: none; }
 </style>
 <div class="map-google">
   <iframe title="Google Maps" referrerpolicy="strict-origin-when-cross-origin"></iframe>
 </div>
+<svg class="map-direction-indicator" viewBox="0 0 200 200" aria-hidden="true">
+  <defs>
+    <radialGradient id="map-beam-gradient" cx="100" cy="100" r="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4285f4" stop-opacity=".48" />
+      <stop offset=".45" stop-color="#4285f4" stop-opacity=".28" />
+      <stop offset="1" stop-color="#4285f4" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <path id="map-direction-beam" d="M100 8 L150 96 A58 58 0 0 1 50 96 Z"
+    fill="url(#map-beam-gradient)" transform="rotate(0 100 100)" />
+</svg>
 <span class="map-location-dot" role="img" aria-label="Punto azul de ubicación"></span>
 <script src="../settings/bus.js"></script>
-<script src="view.js?v=original-map-2"></script>
+<script src="view.js?v=original-map-3"></script>
 </html>

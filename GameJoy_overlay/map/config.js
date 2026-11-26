@@ -7,7 +7,7 @@
   const longitude = Number(params.get('lng'));
   let center = params.has('lat') && params.has('lng') && Number.isFinite(latitude) && Math.abs(latitude) <= 90 &&
     Number.isFinite(longitude) && Math.abs(longitude) <= 180 ? [latitude, longitude] : [40.416775, -3.70379];
-  let zoom = 21, distance = 0, angle = 0, mapSize = 21;
+  let zoom = 21, distance = 0, angle = 0, heading = null, mapSize = 21;
   let mapReady = false;
   let hasLiveCenter = params.has('lat') && params.has('lng') && Number.isFinite(latitude) &&
     Math.abs(latitude) <= 90 && Number.isFinite(longitude) && Math.abs(longitude) <= 180;
@@ -25,7 +25,7 @@
   } catch {}
 
   function sync(refresh = false) {
-    frame.contentWindow?.postMessage({type:'map:config',config:{lat:center[0],lng:center[1],zoom,distance,angle,refresh}}, '*');
+    frame.contentWindow?.postMessage({type:'map:config',config:{lat:center[0],lng:center[1],zoom,distance,angle,heading,refresh}}, '*');
   }
   function receive(data) {
     if (data?.type === 'map:ready') {
@@ -49,6 +49,9 @@
       if (Number.isFinite(position?.lat) && Math.abs(position.lat) <= 90 &&
           Number.isFinite(position?.lng) && Math.abs(position.lng) <= 180) {
         center = [position.lat, position.lng];
+        if (Object.prototype.hasOwnProperty.call(position, 'heading')) {
+          heading = Number.isFinite(position.heading) ? ((position.heading % 360) + 360) % 360 : null;
+        }
         hasLiveCenter = true;
         // El mapa decide cuándo recargar Google Maps. Aquí enviamos cada
         // posición para que aplique el umbral y la cola del mapa original.
