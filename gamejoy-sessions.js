@@ -167,15 +167,22 @@ module.exports = function attachGameJoySessions(io, app, options = {}) {
         });
         app.get('/obs/leaflet.js', (_req, res) => res.sendFile(require.resolve('leaflet/dist/leaflet.js')));
         app.get('/obs/leaflet.css', (_req, res) => res.sendFile(require.resolve('leaflet/dist/leaflet.css')));
-        app.get('/obs/position', (req, res) => {
+        function sendPosition(res, token) {
             res.set('Cache-Control', 'no-store');
-            const token = req.get('Authorization')?.replace(/^Bearer /, '');
             const player = maps.get(token);
             if (!player) return res.sendStatus(204);
             const frame = player.lastFrame;
             const remainingMs = frame && 30000 - frame.ageMs - (Date.now() - frame.receivedAt);
             if (!frame || remainingMs <= 0) return res.sendStatus(204);
             res.json({ latitude: frame.latitude, longitude: frame.longitude, heading: frame.heading, remainingMs });
+        }
+        app.get('/obs/position', (req, res) =>
+            sendPosition(res, req.get('Authorization')?.replace(/^Bearer /, '')));
+        app.get('/obs/session/map/position', (req, res) => {
+            const session = options.getObsSession?.(req);
+            if (!session) return res.sendStatus(401);
+            if (!session.tokens.map) return res.sendStatus(404);
+            return sendPosition(res, session.tokens.map);
         });
     }
     const validNumber = (v, min, max) => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;

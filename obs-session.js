@@ -133,5 +133,5 @@ module.exports = function attachObsSession(app, options = {}) {
         res.json({ success: true });
     });
 
-    return { sessions };
+    return { sessions, getSession };
 };

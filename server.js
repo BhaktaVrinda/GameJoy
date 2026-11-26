@@ -19,7 +19,7 @@ app.use('/obs/overlay-assets', express.static(path.join(__dirname, 'GameJoy_over
 app.get(['/obs/overlay', '/obs/overlay/'], (_req, res) =>
     res.sendFile(path.join(__dirname, 'GameJoy_overlay', 'index.html'))
 );
-require('./obs-session')(app);
+const obsSession = require('./obs-session')(app);
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -29,7 +29,7 @@ const io = new Server(server, {
     }
 });
 
-require('./gamejoy-sessions')(io, app);
+require('./gamejoy-sessions')(io, app, { getObsSession: obsSession.getSession });
 app.get('/gamejoy-health', (_req, res) => res.json({ protocol: 1, build: 'player-cards-id-01d4ce6' }));
 
 // ==================== MULTIPLAYER GAME DATA ====================

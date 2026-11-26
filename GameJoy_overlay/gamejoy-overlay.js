@@ -1,5 +1,8 @@
 import { waitForObsToken } from '/obs-session-token.js';
 
+import { startLiveMap } from './live-map.js';
+
+const stopLiveMap = startLiveMap(document.getElementById('live-map'));
 const directFrame = document.getElementById('direct-view');
 const status = document.getElementById('overlay-status');
 const authPanel = document.getElementById('obs-auth');
@@ -34,6 +37,7 @@ document.getElementById('obs-auth-login').addEventListener('click', () => {
 });
 
 async function logout() {
+  stopLiveMap();
   if (logoutFloating) logoutFloating.disabled = true;
   try {
     await fetch('/obs/session/logout', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
