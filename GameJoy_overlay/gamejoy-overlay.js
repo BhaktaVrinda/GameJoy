@@ -3,6 +3,7 @@ import { waitForObsToken } from '/obs-session-token.js';
 const directFrame = document.getElementById('direct-view');
 const mapFrame = document.getElementById('map-module');
 const status = document.getElementById('overlay-status');
+const turnCounter = document.getElementById('turn-counter');
 const authPanel = document.getElementById('obs-auth');
 const authMessage = document.getElementById('obs-auth-message');
 const logoutFloating = document.getElementById('obs-logout-floating');
@@ -15,6 +16,8 @@ let directToken = null;
 let socket = null;
 let socketToken = null;
 let streamId = null;
+let turnRemainingMs = null;
+let turnUpdatedAt = 0;
 
 function setStatus(message) {
   status.textContent = message || '';
@@ -41,6 +44,7 @@ async function logout() {
     await fetch('/obs/session/logout', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
   } catch {}
   if (socket) socket.disconnect();
+  publishTurn(null);
   socket = null;
   socketToken = null;
   arrowToken = null;
@@ -61,6 +65,23 @@ function publish(data) {
   window.GameJoyBus?.post(data);
   window.dispatchEvent(new CustomEvent('gamejoy:overlay-message', { detail: data }));
 }
+
+function publishTurn(remainingMs) {
+  turnRemainingMs = typeof remainingMs === 'number' && Number.isFinite(remainingMs) && remainingMs >= 0
+    ? remainingMs : null;
+  turnUpdatedAt = performance.now();
+  renderTurn();
+}
+
+function renderTurn() {
+  if (turnRemainingMs === null) {
+    turnCounter.textContent = 'TIEMPO · --:--';
+    return;
+  }
+  const seconds = Math.max(0, Math.ceil((turnRemainingMs - (performance.now() - turnUpdatedAt)) / 1000));
+  turnCounter.textContent = `TIEMPO · ${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+setInterval(renderTurn, 250);
 
 function resetInput() {
   publish({ type: 'controls:move', x: 0, y: 0 });
@@ -83,6 +104,7 @@ function connectSocket() {
   socketToken = token;
   socket = window.io({ autoConnect: false, reconnection: true });
   socket.on('connect', () => {
+    publishTurn(null);
     socket.emit('gamejoy:obs-subscribe', { token: socketToken });
     setStatus('');
   });
@@ -102,9 +124,10 @@ function connectSocket() {
       publish({ type: 'controls:remote-action', action: normalizeButton(data.button), pressed: data.pressed });
     }
   });
-  socket.on('gamejoy:obs-stopped', resetInput);
+  socket.on('gamejoy:obs-turn', data => publishTurn(data?.remainingMs));
+  socket.on('gamejoy:obs-stopped', () => { resetInput(); publishTurn(null); });
   socket.on('gamejoy:obs-error', data => setStatus(data?.message || 'Overlay no disponible'));
-  socket.on('disconnect', () => { resetInput(); setStatus('Reconectando con GameJoy…'); });
+  socket.on('disconnect', () => { resetInput(); publishTurn(null); setStatus('Reconectando con GameJoy…'); });
   socket.on('connect_error', () => setStatus('No se pudo conectar con GameJoy'));
   socket.connect();
 }

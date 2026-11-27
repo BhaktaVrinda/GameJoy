@@ -31,6 +31,11 @@
       background: #08111dcc; color: #d9f8ff; font: 600 13px system-ui, sans-serif;
       text-align: center; white-space: nowrap; }
     #overlay-status[hidden] { display: none; }
+    #turn-counter { position: absolute; z-index: 10; left: 50%; top: 2%; transform: translateX(-50%);
+      min-width: 140px; padding: 8px 16px; border: 1px solid #59e1ffaa; border-radius: 14px;
+      background: #08111de6; color: #e5faff; box-shadow: 0 0 22px #2bb1ff55;
+      font: 700 clamp(20px, 3cqw, 40px) system-ui, sans-serif; font-variant-numeric: tabular-nums;
+      text-align: center; white-space: nowrap; pointer-events: none; }
     #obs-auth { position: absolute; z-index: 50; left: 50%; top: 50%; transform: translate(-50%, -50%);
       width: min(92%, 420px); padding: 20px; border: 1px solid #59e1ff66; border-radius: 16px;
       background: #08111df2; color: #eafaff; box-shadow: 0 12px 42px #0009;
@@ -52,6 +57,7 @@
     <iframe id="arrow-module" title="Flecha nueva de GameJoy"
       src="/obs/overlay-assets/arrow/index.html?v=arrow-only-1"></iframe>
     <canvas id="buttons-3d" aria-label="Botones 3D de GameJoy"></canvas>
+    <div id="turn-counter" role="timer">TIEMPO · --:--</div>
     <button id="obs-logout-floating" type="button" aria-label="Cerrar sesión de OBS">Cerrar sesión</button>
     <div id="overlay-status" role="status" hidden></div>
     <section id="obs-auth" role="dialog" aria-live="polite" hidden>
@@ -62,7 +68,7 @@
   </main>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/obs/overlay-assets/settings/bus.js"></script>
-  <script type="module" src="/obs/overlay-assets/gamejoy-overlay.js?v=arrow-only-1"></script>
+  <script type="module" src="/obs/overlay-assets/gamejoy-overlay.js?v=turn-timer-2"></script>
   <script type="module" src="/obs/overlay-assets/buttons-3d.js?v=buttons-1"></script>
 </body>
 </html>
