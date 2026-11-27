@@ -167,10 +167,31 @@ window.addEventListener('message', event => {
   if (data?.type === 'arrow:move') move(data.x, data.y);
   if (data?.type === 'arrow:release') releaseStick();
 });
+const turnTimer = document.getElementById('turn-timer');
+let turnDeadline = null;
+function renderTurn() {
+  if (turnDeadline === null) return;
+  const seconds = Math.max(0, Math.ceil((turnDeadline - performance.now()) / 1000));
+  turnTimer.textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  turnTimer.hidden = false;
+}
+function setTurn(data) {
+  const remainingMs = data?.remainingMs;
+  if (typeof remainingMs !== 'number' || !Number.isFinite(remainingMs) || remainingMs < 0) {
+    turnDeadline = null;
+    turnTimer.hidden = true;
+    return;
+  }
+  turnDeadline = performance.now() + remainingMs;
+  renderTurn();
+}
+setInterval(renderTurn, 250);
 window.GameJoyBus?.on(data => {
-  if (data?.type !== 'controls:move') return;
-  move(data.x, data.y);
+  if (data?.type === 'controls:move') move(data.x, data.y);
+  if (data?.type === 'turn:remaining') setTurn(data);
 });
+window.GameJoyBus?.post({type:'turn:request'});
+setTimeout(() => window.GameJoyBus?.post({type:'turn:request'}), 1000);
 document.addEventListener('keydown', event => {
   if (event.key.toLowerCase() === 'f' && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey) {
     parent.postMessage({type:'module:peer', payload:{type:'settings:toggle'}}, '*');
