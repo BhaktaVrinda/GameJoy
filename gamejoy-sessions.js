@@ -7,44 +7,6 @@ const { URL, URLSearchParams } = require('node:url');
 const DEFAULT_PERMISSION_ENDPOINT = 'https://moneymaze.es/apps/gamejoy/comando/comprobar_permiso_control.php';
 const PERMISSION_TIMEOUT_MS = 5000;
 const MAX_PERMISSION_RESPONSE_BYTES = 4096;
-const DEFAULT_CONTROL_TIME_MS = 300000;
-
-function loadControlTimeForUser(userId) {
-    if (!/^[a-f0-9]{32}$/i.test(userId || '')) return Promise.resolve(DEFAULT_CONTROL_TIME_MS);
-    const body = new URLSearchParams({ accion: 'recuperar', user_id: userId }).toString();
-    return new Promise(resolve => {
-        let finished = false;
-        const finish = value => {
-            if (finished) return;
-            finished = true;
-            resolve(value);
-        };
-        const request = https.request('https://moneymaze.es/apps/gamejoy/ajustes_mando.php', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) },
-            timeout: 5000
-        }, response => {
-            if (response.statusCode !== 200) { response.resume(); finish(DEFAULT_CONTROL_TIME_MS); return; }
-            let data = '';
-            response.setEncoding('utf8');
-            response.on('data', chunk => {
-                data += chunk;
-                if (data.length > 8192) { response.destroy(); finish(DEFAULT_CONTROL_TIME_MS); }
-            });
-            response.on('end', () => {
-                try {
-                    const seconds = JSON.parse(data)?.data?.control_time_seconds;
-                    finish(Number.isInteger(seconds) && seconds >= 60 && seconds <= 7200
-                        ? seconds * 1000 : DEFAULT_CONTROL_TIME_MS);
-                } catch { finish(DEFAULT_CONTROL_TIME_MS); }
-            });
-            response.on('error', () => finish(DEFAULT_CONTROL_TIME_MS));
-        });
-        request.on('timeout', () => request.destroy());
-        request.on('error', () => finish(DEFAULT_CONTROL_TIME_MS));
-        request.end(body);
-    });
-}
 
 function checkPermissionForChannel(channelHandle) {
     const handle = typeof channelHandle === 'string' ? channelHandle.trim() : '';
@@ -123,23 +85,11 @@ module.exports = function attachGameJoySessions(io, app, options = {}) {
     const checkControlPermission = typeof options.checkControlPermission === 'function'
         ? options.checkControlPermission
         : checkPermissionForChannel;
-    const loadControlTime = typeof options.loadControlTime === 'function'
-        ? options.loadControlTime
-        : loadControlTimeForUser;
-    const clockNow = typeof options.now === 'function' ? options.now : Date.now;
     const players = new Map();
     const maps = new Map();
     const obsVdoLinks = new Map();
     const obsArrowPositions = new Map();
     const obsInputRoom = token => `obs-input:${token}`;
-    function publishObsTurn(p, remainingMs) {
-        if (!p || p.role !== 'player') return;
-        for (const token of new Set([p.mapToken, p.obsVdoToken])) {
-            if (token && (maps.get(token) === p || obsVdoLinks.get(token) === p)) {
-                io.to(obsInputRoom(token)).emit('gamejoy:obs-turn', { remainingMs });
-            }
-        }
-    }
     function publishObsInput(p, x, y) {
         if (!p) return;
         const active = Math.hypot(x, y) > 0.1;
@@ -252,13 +202,10 @@ module.exports = function attachGameJoySessions(io, app, options = {}) {
         clearObsInput(peer);
         clearObsButtons(p);
         clearObsButtons(peer);
-        publishObsTurn(p.role === 'player' ? p : peer, null);
         p.peer = null;
-        p.turnEndsAt = null;
         send(p.id, 'paired', { peer: null, reason });
         if (peer && peer.peer === p.id) {
             peer.peer = null;
-            peer.turnEndsAt = null;
             send(peer.id, 'reset', {});
             send(peer.id, 'paired', { peer: null, reason });
         }
@@ -286,8 +233,6 @@ module.exports = function attachGameJoySessions(io, app, options = {}) {
             socket.emit('gamejoy:obs-ready', {});
             socket.emit('gamejoy:obs-input', target ? obsInputSnapshot(target) : { x: 0, y: 0, active: false });
             socket.emit('gamejoy:obs-buttons', { buttons: target ? obsButtonsSnapshot(target) : [] });
-            socket.emit('gamejoy:obs-turn', { remainingMs: target?.turnEndsAt
-                ? Math.max(0, target.turnEndsAt - clockNow()) : null });
             const arrowPosition = obsArrowPositions.get(token);
             socket.emit('gamejoy:obs-arrow-position', arrowPosition
                 ? { ...arrowPosition, initialized: true }
@@ -302,7 +247,7 @@ module.exports = function attachGameJoySessions(io, app, options = {}) {
             const p = { id: socket.id, role: data.role, userId: accountUserId(data.userId), name: label(data.name, 'Jugador'),
                 channel: label(data.channel, ''), avatar: avatarUrl(data.avatar), sharing: false, peer: null, lastFrame: null, vdoStreamId: null,
                 mapToken: null, obsVdoToken: null, obsInputState: null, obsButtons: new Set(), lastInputAt: 0, lastLocationAt: 0,
-                lastSelectAt: 0, selectAttempt: 0, turnEndsAt: null };
+                lastSelectAt: 0, selectAttempt: 0 };
             players.set(socket.id, p);
             const userOverlayToken = p.role === 'player' ? stableOverlayToken(p.userId) : null;
             if (userOverlayToken) {
@@ -435,23 +380,12 @@ module.exports = function attachGameJoySessions(io, app, options = {}) {
                 return;
             }
 
-            let durationMs = DEFAULT_CONTROL_TIME_MS;
-            try { durationMs = await loadControlTime(target.userId); } catch {}
-            if (!Number.isInteger(durationMs) || durationMs < 60000 || durationMs > 7200000) {
-                durationMs = DEFAULT_CONTROL_TIME_MS;
-            }
-            if (players.get(socket.id) !== p || p.selectAttempt !== attempt || players.get(id) !== target || target.peer ||
-                (!target.sharing && typeof target.vdoStreamId !== 'string')) return;
             unpair(p);
             p.peer = target.id; target.peer = p.id;
-            const serverNow = clockNow();
-            p.turnEndsAt = serverNow + durationMs;
-            target.turnEndsAt = p.turnEndsAt;
-            publishObsTurn(target, durationMs);
             clearObsInput(target);
             clearObsButtons(target);
-            send(p.id, 'paired', { peer: peerProfile(target), turnEndsAt: p.turnEndsAt, serverNow });
-            send(target.id, 'paired', { peer: profile(p), turnEndsAt: p.turnEndsAt, serverNow });
+            send(p.id, 'paired', { peer: peerProfile(target) });
+            send(target.id, 'paired', { peer: profile(p) });
             if (target.lastFrame && Date.now() - target.lastFrame.receivedAt < 10000) {
                 send(p.id, 'location', { ...target.lastFrame,
                     ageMs: target.lastFrame.ageMs + Date.now() - target.lastFrame.receivedAt });
@@ -469,7 +403,6 @@ module.exports = function attachGameJoySessions(io, app, options = {}) {
         socket.on('gamejoy:input', data => {
             const p = players.get(socket.id), target = players.get(p?.peer);
             if (!p || p.role !== 'controller' || !target || target.peer !== p.id || (!target.sharing && typeof target.vdoStreamId !== 'string')) return;
-            if (p.turnEndsAt && clockNow() >= p.turnEndsAt) { unpair(p, 'Tiempo de control agotado'); list(); return; }
             if (!data || !['joystick', 'press', 'release'].includes(data.kind)) return;
             let input;
             if (data.kind === 'joystick') {
@@ -511,19 +444,8 @@ module.exports = function attachGameJoySessions(io, app, options = {}) {
     });
     // Expire cached positions and release held controls when their stream stops.
     const timer = setInterval(() => {
-        const now = clockNow();
+        const now = Date.now();
         for (const p of players.values()) {
-            if (p.role === 'controller' && p.peer && p.turnEndsAt && now >= p.turnEndsAt) {
-                unpair(p, 'Tiempo de control agotado');
-                list();
-                continue;
-            }
-            if (p.role === 'controller' && p.peer && p.turnEndsAt) {
-                const remainingMs = p.turnEndsAt - now;
-                send(p.id, 'turn', { remainingMs });
-                send(p.peer, 'turn', { remainingMs });
-                publishObsTurn(players.get(p.peer), remainingMs);
-            }
             if (p.lastFrame && now - p.lastLocationAt > 10000) {
                 p.lastFrame = null;
                 if (p.peer) send(p.peer, 'location-stopped', {});
